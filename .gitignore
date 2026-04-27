@@ -1,0 +1,16 @@
+node_modules
+
+# Environment and secrets - NEVER commit (P3)
+.env
+.env.*
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+*.env
+!*.env.example
+
+# Local DB (do not commit)
+inclass.db
+uploads/
