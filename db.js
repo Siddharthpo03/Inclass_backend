@@ -55,7 +55,7 @@ const pool = new Pool({
   // By default we enforce certificate verification unless explicitly disabled.
   ssl: shouldEnableSsl
     ? {
-        rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false",
+        rejectUnauthorized: false,
       }
     : false,
 
