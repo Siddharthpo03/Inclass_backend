@@ -44,8 +44,9 @@ const pool = new Pool({
   idleTimeoutMillis: 30000, // 30 seconds
 
   // How long (in ms) to wait for a new connection before failing.
-  // Failing fast avoids requests hanging forever when the DB is saturated.
-  connectionTimeoutMillis: 2000, // 2 seconds
+  // Remote cloud databases (like Neon) need more time for initial connection.
+  // Increased from 2s to 10s for Neon/cloud compatibility.
+  connectionTimeoutMillis: 10000, // 10 seconds
 
   // Prevent Node.js from exiting just because all clients are idle.
   // The process should stay alive and be managed by your process manager (PM2, systemd, etc.).
