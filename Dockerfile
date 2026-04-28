@@ -13,15 +13,10 @@ RUN npm ci
 # Stage 2: Production (Debian-based for better binary compatibility with ONNX Runtime)
 FROM node:22-bookworm-slim
 
-# Install system dependencies for:
-# - Sharp (image processing)
-# - TensorFlow.js (face-api models will auto-download at runtime)
+# Install minimal system dependencies for TensorFlow.js
+# (jimp is pure JavaScript, no graphics libraries needed)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
-    libcairo2 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    giflib-tools \
     python3 \
     && rm -rf /var/lib/apt/lists/*
 

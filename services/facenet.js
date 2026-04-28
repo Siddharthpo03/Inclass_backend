@@ -1,19 +1,13 @@
 // inclass-backend/services/facenet.js
 // Face recognition using face-api.js (TensorFlow.js based)
 // Provides reliable face detection and embedding extraction
+// Uses jimp for image processing (no native canvas dependency)
 
 const tf = require("@tensorflow/tfjs");
-const canvas = require("canvas");
+const Jimp = require("jimp");
 const faceapi = require("@vladmandic/face-api");
 const crypto = require("crypto");
 const logger = require("../utils/logger");
-
-// Register Canvas backend for TensorFlow.js
-faceapi.env.monkeyPatch({
-  Canvas: canvas.Canvas,
-  Image: canvas.Image,
-  ImageData: canvas.ImageData,
-});
 
 let modelsLoaded = false;
 let faceApiAvailable = false;
@@ -23,7 +17,7 @@ const MODELS_PATH =
 
 /**
  * Load face-api models (downloads from CDN on first run)
- * Models are cached in node_modules after first download
+ * Models are cached after first download
  */
 async function loadModels() {
   if (modelsLoaded) {
@@ -78,6 +72,26 @@ function generatePlaceholderEmbedding(imageBuffer) {
 }
 
 /**
+ * Convert Jimp image to canvas-like object for face-api
+ */
+function jimpToCanvas(jimpImage) {
+  const width = jimpImage.bitmap.width;
+  const height = jimpImage.bitmap.height;
+  const data = jimpImage.bitmap.data;
+
+  // Create a canvas-like object with ImageData
+  return {
+    width,
+    height,
+    getContext: () => ({
+      drawImage: () => {}, // No-op, face-api only needs the data
+    }),
+    // face-api reads canvas as ImageData via canvas.getContext('2d').getImageData
+    _getData: () => data,
+  };
+}
+
+/**
  * Extract a 512-dim face embedding from image buffer
  * Returns placeholder if face-api unavailable
  */
@@ -98,16 +112,29 @@ async function extractEmbedding(imageBuffer) {
       return generatePlaceholderEmbedding(imageBuffer);
     }
 
-    // Convert image buffer to canvas
-    const img = await canvas.loadImage(imageBuffer);
-    const canvasEl = canvas.createCanvas(img.width, img.height);
-    const ctx = canvasEl.getContext("2d");
-    ctx.drawImage(img, 0, 0);
+    // Load image with jimp (pure JavaScript, no native deps)
+    const jimpImage = await Jimp.read(imageBuffer);
+
+    // Resize to standard size for face detection
+    const resized = jimpImage.resize({
+      w: 640,
+      h: 480,
+    });
+
+    // Create 4D tensor from image data [batch, height, width, channels]
+    const pixels = resized.bitmap.data;
+    const width = resized.bitmap.width;
+    const height = resized.bitmap.height;
+    
+    // face-api expects tensor with values in 0-255 range
+    const tensor = tf.tensor4d(pixels, [1, height, width, 4], 'uint8');
 
     // Detect faces and extract embeddings
     const detections = await faceapi
-      .detectAllFaces(canvasEl, new faceapi.TinyFaceDetectorOptions())
+      .detectAllFaces(tensor, new faceapi.TinyFaceDetectorOptions())
       .withFaceDescriptors();
+
+    tensor.dispose(); // Clean up TensorFlow memory
 
     if (detections.length === 0) {
       logger.warn("No face detected in image. Using placeholder embedding.");
