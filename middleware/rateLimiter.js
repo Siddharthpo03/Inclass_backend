@@ -93,7 +93,7 @@ const globalLimiter = rateLimit({
 // -------- OTP limiters (existing behavior, unchanged) --------
 const otpSendLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 1,
+  max: 3,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: keyGen,
