@@ -53,7 +53,10 @@ async function loadModel() {
 
     // Log available providers if debugging
     if (process.env.NODE_ENV === "development") {
-      logger.debug("ONNX Runtime attempting execution providers:", executionProviders);
+      logger.debug(
+        "ONNX Runtime attempting execution providers:",
+        executionProviders,
+      );
     }
 
     sessionPromise = ort.InferenceSession.create(MODEL_PATH, {
@@ -73,8 +76,8 @@ async function loadModel() {
     if (errorMsg.includes("backend not found")) {
       throw new Error(
         `FaceNet ONNX Runtime CPU backend not available in this environment. ` +
-        `Error: ${errorMsg}. ` +
-        `Ensure the server has proper system libraries installed (libomp, libgomp).`,
+          `Error: ${errorMsg}. ` +
+          `Ensure the server has proper system libraries installed (libomp, libgomp).`,
       );
     }
 
