@@ -5,8 +5,28 @@ const { Pool } = require("pg");
 require("dotenv").config();
 const logger = require("./utils/logger");
 
+function sanitizeDbUrl(rawValue) {
+  if (!rawValue || typeof rawValue !== "string") {
+    return "";
+  }
+
+  const trimmed = rawValue.trim();
+
+  // Remove wrapping quotes if the value was pasted with quotes.
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+}
+
+const databaseUrl = sanitizeDbUrl(process.env.DATABASE_URL);
+
 // Validate DATABASE_URL is set
-if (!process.env.DATABASE_URL) {
+if (!databaseUrl) {
   logger.error(`
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  CRITICAL ERROR: DATABASE_URL is not set                                    ║
@@ -33,7 +53,7 @@ const shouldEnableSsl =
 
 // Production-grade connection pool configuration
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: databaseUrl,
 
   // Maximum number of clients the pool will keep open at once.
   // This protects PostgreSQL from overload while still allowing good concurrency.

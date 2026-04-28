@@ -4,7 +4,8 @@
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 
 // IPv6-safe key: use library helper so IPv6 users cannot bypass limits
-const keyGen = (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown");
+const keyGen = (req) =>
+  ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown");
 
 // -------- 1. Auth limiter: protect login/register from brute-force --------
 // max 5 requests per 15 minutes per IP
@@ -14,7 +15,8 @@ const authLimiter = rateLimit({
   message: {
     success: false,
     error: {
-      message: "Too many authentication attempts. Please try again after 15 minutes.",
+      message:
+        "Too many authentication attempts. Please try again after 15 minutes.",
       code: "RATE_LIMIT_EXCEEDED",
     },
   },
@@ -25,7 +27,8 @@ const authLimiter = rateLimit({
     res.status(429).json({
       success: false,
       error: {
-        message: "Too many authentication attempts. Please try again after 15 minutes.",
+        message:
+          "Too many authentication attempts. Please try again after 15 minutes.",
         code: "RATE_LIMIT_EXCEEDED",
       },
     });
@@ -44,7 +47,8 @@ const attendanceLimiter = rateLimit({
   message: {
     success: false,
     error: {
-      message: "Too many attendance requests. Please slow down and try again in a minute.",
+      message:
+        "Too many attendance requests. Please slow down and try again in a minute.",
       code: "RATE_LIMIT_EXCEEDED",
     },
   },
@@ -55,7 +59,8 @@ const attendanceLimiter = rateLimit({
     res.status(429).json({
       success: false,
       error: {
-        message: "Too many attendance requests. Please slow down and try again in a minute.",
+        message:
+          "Too many attendance requests. Please slow down and try again in a minute.",
         code: "RATE_LIMIT_EXCEEDED",
       },
     });

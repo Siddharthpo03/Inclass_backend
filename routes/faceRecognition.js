@@ -25,7 +25,7 @@ function getImageBuffer(req) {
     } catch (err) {
       // Surface detailed context instead of generic UNKNOWN errors from fs
       throw new Error(
-        `Failed to read uploaded image file at ${imagePath}: ${err.message}`
+        `Failed to read uploaded image file at ${imagePath}: ${err.message}`,
       );
     }
   }
@@ -45,8 +45,9 @@ function getImageBuffer(req) {
 router.post("/enroll", upload.single("image"), async (req, res) => {
   if (!isFaceNetAvailable()) {
     return res.status(503).json({
-      error: "Face recognition is currently unavailable.",
-      message: "FaceNet model not installed on the server.",
+      error: "Face recognition service unavailable",
+      message:
+        "FaceNet model not found. Ensure facenet-512.onnx is deployed to backend/models/.",
     });
   }
 
@@ -73,6 +74,7 @@ router.post("/enroll", upload.single("image"), async (req, res) => {
     res.status(500).json({
       error: "Server error during face enrollment.",
       message: err.message,
+      hint: "Ensure Sharp is installed and facenet-512.onnx model exists in backend/models/",
     });
   }
 });
@@ -122,5 +124,3 @@ router.post("/recognize", upload.single("image"), async (req, res) => {
 });
 
 module.exports = router;
-
-
