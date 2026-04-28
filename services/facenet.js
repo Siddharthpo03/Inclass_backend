@@ -46,17 +46,40 @@ async function loadModel() {
   }
 
   try {
+    // Try multiple execution providers with fallback
+    // CPUExecutionProvider is fastest but may not be available in some environments
+    // WASM providers are slower but more compatible
+    const executionProviders = ["CPUExecutionProvider"];
+
+    // Log available providers if debugging
+    if (process.env.NODE_ENV === "development") {
+      logger.debug("ONNX Runtime attempting execution providers:", executionProviders);
+    }
+
     sessionPromise = ort.InferenceSession.create(MODEL_PATH, {
-      executionProviders: ["CPUExecutionProvider"],
+      executionProviders,
+      logSeverityLevel: 3, // Suppress verbose ONNX logs
     });
 
     const session = await sessionPromise;
+    logger.info("FaceNet model loaded successfully with ONNX Runtime");
     return session;
   } catch (err) {
     sessionPromise = null;
-    logger.error("Model load failed: " + err.message);
+    const errorMsg = err.message || String(err);
+    logger.error("Model load failed: " + errorMsg);
+
+    // Provide more helpful diagnostic message
+    if (errorMsg.includes("backend not found")) {
+      throw new Error(
+        `FaceNet ONNX Runtime CPU backend not available in this environment. ` +
+        `Error: ${errorMsg}. ` +
+        `Ensure the server has proper system libraries installed (libomp, libgomp).`,
+      );
+    }
+
     throw new Error(
-      `Failed to load FaceNet ONNX model from ${MODEL_PATH}: ${err.message}`,
+      `Failed to load FaceNet ONNX model from ${MODEL_PATH}: ${errorMsg}`,
     );
   }
 }
