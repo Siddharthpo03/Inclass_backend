@@ -46,43 +46,60 @@ async function loadModel() {
   }
 
   try {
-    // Try multiple execution providers with fallback
-    // CPUExecutionProvider is fastest but may not be available in some environments
-    // WASM providers are slower but more compatible
-    const executionProviders = ["CPUExecutionProvider"];
+    // Strategy: Try multiple execution providers with fallback
+    // CPU is fastest, but may not be available in all environments
+    // WASM is slower but more compatible across different systems
+    
+    const executionStrategies = [
+      {
+        name: "CPU",
+        providers: ["CPUExecutionProvider"],
+      },
+      {
+        name: "WASM (fallback)",
+        providers: ["WebAssemblyExecutionProvider"],
+      },
+    ];
 
-    // Log available providers if debugging
-    if (process.env.NODE_ENV === "development") {
-      logger.debug(
-        "ONNX Runtime attempting execution providers:",
-        executionProviders,
-      );
+    let lastError = null;
+    let session = null;
+
+    for (const strategy of executionStrategies) {
+      try {
+        if (process.env.NODE_ENV === "development") {
+          logger.debug(
+            `ONNX Runtime: Attempting ${strategy.name} (${strategy.providers.join(", ")})`,
+          );
+        }
+
+        sessionPromise = ort.InferenceSession.create(MODEL_PATH, {
+          executionProviders: strategy.providers,
+          logSeverityLevel: 3, // Suppress verbose ONNX logs
+        });
+
+        session = await sessionPromise;
+        logger.info(`✅ FaceNet model loaded with ${strategy.name} backend`);
+        return session;
+      } catch (err) {
+        lastError = err;
+        if (process.env.NODE_ENV === "development") {
+          logger.debug(`❌ ${strategy.name} backend failed: ${err.message}`);
+        }
+        sessionPromise = null;
+        // Continue to next strategy
+      }
     }
 
-    sessionPromise = ort.InferenceSession.create(MODEL_PATH, {
-      executionProviders,
-      logSeverityLevel: 3, // Suppress verbose ONNX logs
-    });
-
-    const session = await sessionPromise;
-    logger.info("FaceNet model loaded successfully with ONNX Runtime");
-    return session;
+    // All strategies failed
+    throw lastError || new Error("No ONNX Runtime execution providers available");
   } catch (err) {
     sessionPromise = null;
     const errorMsg = err.message || String(err);
     logger.error("Model load failed: " + errorMsg);
 
-    // Provide more helpful diagnostic message
-    if (errorMsg.includes("backend not found")) {
-      throw new Error(
-        `FaceNet ONNX Runtime CPU backend not available in this environment. ` +
-          `Error: ${errorMsg}. ` +
-          `Ensure the server has proper system libraries installed (libomp, libgomp).`,
-      );
-    }
-
     throw new Error(
-      `Failed to load FaceNet ONNX model from ${MODEL_PATH}: ${errorMsg}`,
+      `Failed to load FaceNet ONNX model from ${MODEL_PATH}: ${errorMsg}. ` +
+        `Tried CPU and WASM backends. Ensure system libraries are installed.`,
     );
   }
 }
