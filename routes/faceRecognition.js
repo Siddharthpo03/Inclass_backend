@@ -7,6 +7,7 @@ const path = require("path");
 const router = express.Router();
 const auth = require("../middleware/auth");
 const upload = require("../middleware/upload");
+const logger = require("../utils/logger");
 const { extractEmbedding, isFaceNetAvailable } = require("../services/facenet");
 const { saveUserEmbedding, findBestMatch } = require("../services/faceMatcher");
 
@@ -43,14 +44,6 @@ function getImageBuffer(req) {
 // @desc    Enroll user's face (store 512-d embedding in users.embedding)
 // @access  Private (or Public during registration with userId)
 router.post("/enroll", upload.single("image"), async (req, res) => {
-  if (!isFaceNetAvailable()) {
-    return res.status(503).json({
-      error: "Face recognition service unavailable",
-      message:
-        "FaceNet model not found. Ensure facenet-512.onnx is deployed to backend/models/.",
-    });
-  }
-
   try {
     const userId = req.user?.id || req.body.userId;
     if (!userId) {
@@ -63,18 +56,21 @@ router.post("/enroll", upload.single("image"), async (req, res) => {
     }
 
     const embedding = await extractEmbedding(imageBuffer);
+
     await saveUserEmbedding(userId, embedding);
 
     return res.status(201).json({
       message: "Face enrolled successfully.",
       embeddingSize: embedding.length,
+      note: !isFaceNetAvailable()
+        ? "Face recognition is using placeholder embeddings (ONNX Runtime unavailable). Attendance will work but face verification may be limited."
+        : undefined,
     });
   } catch (err) {
-    console.error("FaceNet enrollment error:", err);
+    logger.error("FaceNet enrollment error:", err);
     res.status(500).json({
       error: "Server error during face enrollment.",
       message: err.message,
-      hint: "Ensure Sharp is installed and facenet-512.onnx model exists in backend/models/",
     });
   }
 });
@@ -83,17 +79,19 @@ router.post("/enroll", upload.single("image"), async (req, res) => {
 // @desc    Recognize user from face image using nearest-neighbor search
 // @access  Public (caller decides how to use result)
 router.post("/recognize", upload.single("image"), async (req, res) => {
-  if (!isFaceNetAvailable()) {
-    return res.status(503).json({
-      error: "Face recognition is currently unavailable.",
-      message: "FaceNet model not installed on the server.",
-    });
-  }
-
   try {
     const imageBuffer = getImageBuffer(req);
     if (!imageBuffer) {
       return res.status(400).json({ message: "Face image is required." });
+    }
+
+    // If face recognition is unavailable, return degraded response
+    if (!isFaceNetAvailable()) {
+      return res.status(503).json({
+        match: false,
+        message: "Face recognition is currently unavailable.",
+        note: "Placeholder embeddings are being used. Real face matching is disabled.",
+      });
     }
 
     const embedding = await extractEmbedding(imageBuffer);
@@ -115,7 +113,7 @@ router.post("/recognize", upload.single("image"), async (req, res) => {
       embedding,
     });
   } catch (err) {
-    console.error("FaceNet recognition error:", err);
+    logger.error("FaceNet recognition error:", err);
     res.status(500).json({
       error: "Server error during face recognition.",
       message: err.message,

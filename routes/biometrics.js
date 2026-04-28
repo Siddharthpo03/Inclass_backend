@@ -7,6 +7,7 @@ const router = express.Router();
 const { pool } = require("../config/database");
 const auth = require("../middleware/auth");
 const sendMail = require("../utils/mailer");
+const logger = require("../utils/logger");
 const {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -23,7 +24,7 @@ const {
   getAuthenticationChallenge,
   clearAuthenticationChallenge,
 } = require("../middleware/biometricAuth");
-const { extractEmbedding } = require("../services/facenet");
+const { extractEmbedding, isFaceNetAvailable } = require("../services/facenet");
 const { saveUserEmbedding, findBestMatch } = require("../services/faceMatcher");
 
 // WebAuthn configuration - supports separate student/faculty domains
@@ -53,7 +54,7 @@ if (NODE_ENV === "production" && RP_ID === "localhost") {
   );
 }
 
-console.log(`WebAuthn configured for RP_ID: ${RP_ID}`);
+logger.info(`WebAuthn configured for RP_ID: ${RP_ID}`);
 
 // ORIGIN is determined dynamically from request origin
 // This allows WebAuthn to work with both student.* and faculty.* subdomains
@@ -91,7 +92,7 @@ function validateWebAuthnOrigin(req, res) {
   const expectedOrigin = `https://${RP_ID}`;
 
   if (!originHeader || originHeader !== expectedOrigin) {
-    console.warn(
+    logger.warn(
       "[WebAuthn] Forbidden WebAuthn origin:",
       "received=",
       originHeader || "none",
@@ -146,7 +147,7 @@ router.post("/webauthn/register/options", async (req, res) => {
       });
     }
 
-    console.log(
+    logger.info(
       `[WebAuthn] Generating registration options for userId: ${targetUserId}`
     );
 
@@ -159,7 +160,7 @@ router.post("/webauthn/register/options", async (req, res) => {
         [targetUserId]
       );
     } catch (dbError) {
-      console.error("[WebAuthn] Database error fetching user:", dbError);
+      logger.error("[WebAuthn] Database error fetching user:", dbError);
       return res.status(500).json({
         success: false,
         message: `Database error: ${dbError.message}. Check if users table exists.`,
@@ -238,7 +239,7 @@ router.post("/webauthn/register/options", async (req, res) => {
       timestamp: Date.now(),
     });
 
-    console.log(`[WebAuthn] Challenge stored for userId: ${targetUserId}`);
+    logger.info(`[WebAuthn] Challenge stored for userId: ${targetUserId}`);
 
     // Serialize options for JSON response (convert ArrayBuffers to base64url strings)
     const serializedOptions = {
@@ -278,7 +279,7 @@ router.post("/webauthn/register/options", async (req, res) => {
     );
     res.json(serializedOptions);
   } catch (err) {
-    console.error("[WebAuthn] Registration options error:", err.message);
+    logger.error("[WebAuthn] Registration options error:", err.message);
     // Delegate to centralized error handler
     next(err);
   }
@@ -350,7 +351,7 @@ router.post("/webauthn/register/complete", async (req, res) => {
       type: registrationResponse.type || "public-key",
     };
 
-    console.log(`[WebAuthn] Verifying registration response...`);
+    logger.info(`[WebAuthn] Verifying registration response...`);
 
     // Get origin for WebAuthn verification
     const dynamicOrigin = getWebAuthnOrigin(req);
@@ -369,7 +370,7 @@ router.post("/webauthn/register/complete", async (req, res) => {
         requireUserVerification: true,
       });
     } catch (verifyError) {
-      console.error("[WebAuthn] Verification error:", verifyError.message);
+      logger.error("[WebAuthn] Verification error:", verifyError.message);
       return res.status(400).json({
         success: false,
         message:
@@ -390,7 +391,7 @@ router.post("/webauthn/register/complete", async (req, res) => {
     const { credentialID, credentialPublicKey, counter } =
       verification.registrationInfo;
 
-    console.log(`[WebAuthn] Verification successful, storing credential...`);
+    logger.info(`[WebAuthn] Verification successful, storing credential...`);
 
 
     // Store credential in database
@@ -408,7 +409,7 @@ router.post("/webauthn/register/complete", async (req, res) => {
         ]
       );
     } catch (dbError) {
-      console.error("[WebAuthn] Database error storing credential:", dbError);
+      logger.error("[WebAuthn] Database error storing credential:", dbError);
       if (dbError.code === "23505") {
         return res.status(400).json({
           success: false,
@@ -442,7 +443,7 @@ router.post("/webauthn/register/complete", async (req, res) => {
 
     res.status(201).json(responseData);
   } catch (err) {
-    console.error("[WebAuthn] Registration complete error:", err.message);
+    logger.error("[WebAuthn] Registration complete error:", err.message);
     // Delegate to centralized error handler
     next(err);
   }
@@ -509,7 +510,7 @@ router.post("/webauthn/auth/options", async (req, res) => {
 
     res.json(serializedOptions);
   } catch (err) {
-    console.error("WebAuthn authentication options error:", err);
+    logger.error("WebAuthn authentication options error:", err);
     res
       .status(500)
       .json({ error: "Server error generating authentication options." });
@@ -625,7 +626,7 @@ router.post("/webauthn/auth/complete", async (req, res) => {
       credentialId: credentialId,
     });
   } catch (err) {
-    console.error("WebAuthn authentication complete error:", err);
+    logger.error("WebAuthn authentication complete error:", err);
     res.status(500).json({ error: "Server error completing authentication." });
   }
 });

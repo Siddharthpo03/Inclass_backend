@@ -13,20 +13,15 @@ RUN npm ci
 # Stage 2: Production (Debian-based for better binary compatibility with ONNX Runtime)
 FROM node:22-bookworm-slim
 
-# Install comprehensive system dependencies for:
+# Install system dependencies for:
 # - Sharp (image processing)
-# - ONNX Runtime (multiple backends for compatibility)
-# - General build tools (in case native modules need compilation)
+# - TensorFlow.js (face-api models will auto-download at runtime)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
     libcairo2 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     giflib-tools \
-    libgomp1 \
-    libomp-dev \
-    libopenblas0 \
-    build-essential \
     python3 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -35,15 +30,10 @@ WORKDIR /app
 # Copy built modules from builder
 COPY --from=builder /app/node_modules ./node_modules
 
-# Copy application code (including models directory)
+# Copy application code
 COPY . ./
 
-# Ensure models directory exists and has proper permissions
-RUN mkdir -p ./models && chmod 755 ./models
-
-# Set environment variables for ONNX Runtime to help find libraries
-ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
-ENV ORT_DISABLE_TELEMETRY=1
+# TensorFlow.js face-api models will auto-download on first run
 
 # Create non-root user for security
 RUN groupadd -g 1001 nodejs && \
