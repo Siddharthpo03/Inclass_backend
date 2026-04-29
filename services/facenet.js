@@ -5,7 +5,7 @@
 
 const tf = require("@tensorflow/tfjs");
 const Jimp = require("jimp");
-const faceapi = require("@vladmandic/face-api");
+const faceapi = require("@vladmandic/face-api/dist/face-api.node-cpu.js");
 const crypto = require("crypto");
 const logger = require("../utils/logger");
 
@@ -30,8 +30,8 @@ async function loadModels() {
     // Load models in parallel
     await Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_PATH),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_PATH),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_PATH),
-      faceapi.nets.faceExpressionNet.loadFromUri(MODELS_PATH),
     ]);
 
     modelsLoaded = true;
@@ -69,26 +69,6 @@ function generatePlaceholderEmbedding(imageBuffer) {
 }
 
 /**
- * Convert Jimp image to canvas-like object for face-api
- */
-function jimpToCanvas(jimpImage) {
-  const width = jimpImage.bitmap.width;
-  const height = jimpImage.bitmap.height;
-  const data = jimpImage.bitmap.data;
-
-  // Create a canvas-like object with ImageData
-  return {
-    width,
-    height,
-    getContext: () => ({
-      drawImage: () => {}, // No-op, face-api only needs the data
-    }),
-    // face-api reads canvas as ImageData via canvas.getContext('2d').getImageData
-    _getData: () => data,
-  };
-}
-
-/**
  * Extract a 512-dim face embedding from image buffer
  * Returns placeholder if face-api unavailable
  */
@@ -113,22 +93,27 @@ async function extractEmbedding(imageBuffer) {
     const jimpImage = await Jimp.read(imageBuffer);
 
     // Resize to standard size for face detection
-    const resized = jimpImage.resize({
-      w: 640,
-      h: 480,
-    });
+    const resized = jimpImage.resize(640, 480);
 
-    // Create 4D tensor from image data [batch, height, width, channels]
+    // Create a 3D tensor from image data [height, width, channels]
     const pixels = resized.bitmap.data;
     const width = resized.bitmap.width;
     const height = resized.bitmap.height;
+    const rgbPixels = new Float32Array(width * height * 3);
 
-    // face-api expects tensor with values in 0-255 range
-    const tensor = tf.tensor4d(pixels, [1, height, width, 4], "uint8");
+    for (let sourceIndex = 0, targetIndex = 0; sourceIndex < pixels.length; sourceIndex += 4) {
+      rgbPixels[targetIndex++] = pixels[sourceIndex];
+      rgbPixels[targetIndex++] = pixels[sourceIndex + 1];
+      rgbPixels[targetIndex++] = pixels[sourceIndex + 2];
+    }
+
+    // face-api expects tensor values in the 0-255 range
+    const tensor = tf.tensor3d(rgbPixels, [height, width, 3], "float32");
 
     // Detect faces and extract embeddings
     const detections = await faceapi
       .detectAllFaces(tensor, new faceapi.TinyFaceDetectorOptions())
+      .withFaceLandmarks()
       .withFaceDescriptors();
 
     tensor.dispose(); // Clean up TensorFlow memory

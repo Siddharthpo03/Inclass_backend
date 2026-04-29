@@ -33,8 +33,9 @@ const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
 
 // Initialize Socket.io with the HTTP server, reusing CORS origins from app
-const allowedOrigins =
-  (app.locals && app.locals.allowedOrigins) || ["http://localhost:5173"];
+const allowedOrigins = (app.locals && app.locals.allowedOrigins) || [
+  "http://localhost:5173",
+];
 
 const io = socketInit.init(server, {
   origin: allowedOrigins,
@@ -80,4 +81,3 @@ process.on("SIGINT", () => {
 });
 
 module.exports = server;
-
