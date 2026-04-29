@@ -171,14 +171,18 @@ async function extractEmbedding(imageBuffer) {
   }
 }
 
-// Initialize on module load (non-blocking)
+// Initialize on module load (non-blocking, once only)
 // Models will auto-load on first face request, not blocking server startup
+let initAttempted = false;
 setImmediate(() => {
-  loadModels().catch((err) => {
-    logger.warn(
-      `Models will be loaded on first face request: ${err.message || "Unknown error"}`,
-    );
-  });
+  if (!initAttempted) {
+    initAttempted = true;
+    loadModels().catch((err) => {
+      logger.warn(
+        `Models will be loaded on first face request: ${err.message || "Unknown error"}`,
+      );
+    });
+  }
 });
 
 module.exports = {

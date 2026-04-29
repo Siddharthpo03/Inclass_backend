@@ -56,12 +56,14 @@ const pool = new Pool({
   connectionString: databaseUrl,
 
   // Maximum number of clients the pool will keep open at once.
-  // This protects PostgreSQL from overload while still allowing good concurrency.
-  max: 20,
+  // Reduced from 20 to 10 to prevent quota limits on Neon/Azure.
+  // Most requests don't need more than 5-10 concurrent connections.
+  max: 10,
 
   // How long (in ms) a client can sit idle in the pool before being closed.
+  // Reduced from 30s to 10s to release connections faster and prevent buildup.
   // Keeps the pool healthy and frees connections from apps that stopped using them.
-  idleTimeoutMillis: 30000, // 30 seconds
+  idleTimeoutMillis: 10000, // 10 seconds
 
   // How long (in ms) to wait for a new connection before failing.
   // Remote cloud databases (like Neon) need more time for initial connection.

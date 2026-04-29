@@ -67,8 +67,9 @@ server.listen(PORT, () => {
   logger.info("Socket.io initialized and ready for connections");
 
   // P3 DB-004: Schedule duplicate attendance detection daily at 2 AM
-  const { startDuplicateDetectionSchedule } = require("./jobs/duplicateDetection");
-  startDuplicateDetectionSchedule();
+  // TEMPORARILY DISABLED during quota limit recovery - can be re-enabled after Azure quota reset
+  // const { startDuplicateDetectionSchedule } = require("./jobs/duplicateDetection");
+  // startDuplicateDetectionSchedule();
 });
 
 // Clean shutdown on Ctrl+C so the port is released immediately
