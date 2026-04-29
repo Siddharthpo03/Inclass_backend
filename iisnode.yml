@@ -1,0 +1,17 @@
+# iisnode configuration for Azure App Service
+nodeProcessCountPerApplication: 1
+nodeProcessCountPerApplication: 1
+maxConcurrentRequestsPerProcess: 1024
+maxNamedPipeConnectionRetry: 200
+namedPipeConnectionRetryDelay: 250
+maxNamedPipeConnectionPoolSize: 512
+maxRequestBufferSize: 67108864
+watchedFiles:
+  - web.config
+  - server.js
+appendSourceMapLinesToOutput: false
+debuggingEnabled: false
+enableXFF: true
+logDirectory: d:\home\LogFiles\nodejs
+loggingEnabled: true
+gracefulShutdownTimeout: 60000

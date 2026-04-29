@@ -56,10 +56,7 @@ function isFaceNetAvailable() {
  * Uses image hash to create a consistent 512-dim vector
  */
 function generatePlaceholderEmbedding(imageBuffer) {
-  const hash = crypto
-    .createHash("sha256")
-    .update(imageBuffer)
-    .digest("hex");
+  const hash = crypto.createHash("sha256").update(imageBuffer).digest("hex");
 
   // Create deterministic 512-dim vector from hash
   const embedding = new Float32Array(512);
@@ -125,9 +122,9 @@ async function extractEmbedding(imageBuffer) {
     const pixels = resized.bitmap.data;
     const width = resized.bitmap.width;
     const height = resized.bitmap.height;
-    
+
     // face-api expects tensor with values in 0-255 range
-    const tensor = tf.tensor4d(pixels, [1, height, width, 4], 'uint8');
+    const tensor = tf.tensor4d(pixels, [1, height, width, 4], "uint8");
 
     // Detect faces and extract embeddings
     const detections = await faceapi
@@ -149,8 +146,7 @@ async function extractEmbedding(imageBuffer) {
 
     for (let i = 1; i < detections.length; i++) {
       const area =
-        detections[i].detection.box.width *
-        detections[i].detection.box.height;
+        detections[i].detection.box.width * detections[i].detection.box.height;
       if (area > maxArea) {
         largestDetection = detections[i];
         maxArea = area;
@@ -175,16 +171,15 @@ async function extractEmbedding(imageBuffer) {
   }
 }
 
-// Initialize on module load
-try {
+// Initialize on module load (non-blocking)
+// Models will auto-load on first face request, not blocking server startup
+setImmediate(() => {
   loadModels().catch((err) => {
     logger.warn(
-      `Models will be loaded on first request: ${err.message || "Unknown error"}`,
+      `Models will be loaded on first face request: ${err.message || "Unknown error"}`,
     );
   });
-} catch (err) {
-  logger.warn("Face-API initialization deferred to first request");
-}
+});
 
 module.exports = {
   loadModels,

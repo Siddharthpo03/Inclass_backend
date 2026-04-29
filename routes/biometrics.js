@@ -37,7 +37,7 @@ let RP_ID;
 if (!process.env.WEBAUTHN_RP_ID) {
   if (NODE_ENV === "production") {
     throw new Error(
-      "CRITICAL SECURITY ERROR: WEBAUTHN_RP_ID must be set in production."
+      "CRITICAL SECURITY ERROR: WEBAUTHN_RP_ID must be set in production.",
     );
   } else {
     RP_ID = "localhost";
@@ -50,7 +50,7 @@ const RP_NAME = process.env.WEBAUTHN_RP_NAME || "InClass Attendance System";
 // Additional hardening: never allow localhost RP_ID in production
 if (NODE_ENV === "production" && RP_ID === "localhost") {
   throw new Error(
-    "CRITICAL SECURITY ERROR: WEBAUTHN_RP_ID cannot be 'localhost' in production."
+    "CRITICAL SECURITY ERROR: WEBAUTHN_RP_ID cannot be 'localhost' in production.",
   );
 }
 
@@ -97,7 +97,7 @@ function validateWebAuthnOrigin(req, res) {
       "received=",
       originHeader || "none",
       "expected=",
-      expectedOrigin
+      expectedOrigin,
     );
 
     res.status(403).json({
@@ -148,7 +148,7 @@ router.post("/webauthn/register/options", async (req, res) => {
     }
 
     logger.info(
-      `[WebAuthn] Generating registration options for userId: ${targetUserId}`
+      `[WebAuthn] Generating registration options for userId: ${targetUserId}`,
     );
 
     // Get user info
@@ -157,7 +157,7 @@ router.post("/webauthn/register/options", async (req, res) => {
     try {
       userResult = await pool.query(
         "SELECT name, email FROM users WHERE id = $1",
-        [targetUserId]
+        [targetUserId],
       );
     } catch (dbError) {
       logger.error("[WebAuthn] Database error fetching user:", dbError);
@@ -181,14 +181,14 @@ router.post("/webauthn/register/options", async (req, res) => {
     try {
       const credResult = await pool.query(
         "SELECT credential_id FROM webauthn_credentials WHERE user_id = $1 AND is_active = TRUE",
-        [targetUserId]
+        [targetUserId],
       );
       existingCredentials = credResult;
     } catch (dbError) {
       // Table might not exist - log but continue (will create on first enrollment)
       console.warn(
         "[WebAuthn] Could not fetch existing credentials (table may not exist):",
-        dbError.message
+        dbError.message,
       );
       existingCredentials = { rows: [] };
     }
@@ -219,7 +219,7 @@ router.post("/webauthn/register/options", async (req, res) => {
     } catch (genError) {
       console.error(
         "[WebAuthn] Error generating registration options:",
-        genError.message
+        genError.message,
       );
       return res.status(500).json({
         success: false,
@@ -270,12 +270,12 @@ router.post("/webauthn/register/options", async (req, res) => {
           id: isoBase64URL.fromBuffer(cred.id),
           type: cred.type,
           transports: cred.transports || ["internal"],
-        })
+        }),
       );
     }
 
     console.log(
-      `[WebAuthn] Returning registration options for userId: ${targetUserId}`
+      `[WebAuthn] Returning registration options for userId: ${targetUserId}`,
     );
     res.json(serializedOptions);
   } catch (err) {
@@ -314,7 +314,7 @@ router.post("/webauthn/register/complete", async (req, res) => {
     }
 
     console.log(
-      `[WebAuthn] Completing registration for userId: ${targetUserId}`
+      `[WebAuthn] Completing registration for userId: ${targetUserId}`,
     );
 
     // Get stored challenge
@@ -338,13 +338,13 @@ router.post("/webauthn/register/complete", async (req, res) => {
         clientDataJSON:
           typeof registrationResponse.response?.clientDataJSON === "string"
             ? isoBase64URL.toBuffer(
-                registrationResponse.response.clientDataJSON
+                registrationResponse.response.clientDataJSON,
               )
             : registrationResponse.response?.clientDataJSON,
         attestationObject:
           typeof registrationResponse.response?.attestationObject === "string"
             ? isoBase64URL.toBuffer(
-                registrationResponse.response.attestationObject
+                registrationResponse.response.attestationObject,
               )
             : registrationResponse.response?.attestationObject,
       },
@@ -380,7 +380,7 @@ router.post("/webauthn/register/complete", async (req, res) => {
 
     if (!verification.verified || !verification.registrationInfo) {
       console.error(
-        "[WebAuthn] Verification failed - not verified or missing registration info"
+        "[WebAuthn] Verification failed - not verified or missing registration info",
       );
       return res.status(400).json({
         success: false,
@@ -392,7 +392,6 @@ router.post("/webauthn/register/complete", async (req, res) => {
       verification.registrationInfo;
 
     logger.info(`[WebAuthn] Verification successful, storing credential...`);
-
 
     // Store credential in database
     const credentialIdString = isoBase64URL.fromBuffer(credentialID);
@@ -406,7 +405,7 @@ router.post("/webauthn/register/complete", async (req, res) => {
           isoBase64URL.fromBuffer(credentialPublicKey),
           deviceName || "Unknown Device",
           counter || 0,
-        ]
+        ],
       );
     } catch (dbError) {
       logger.error("[WebAuthn] Database error storing credential:", dbError);
@@ -426,12 +425,11 @@ router.post("/webauthn/register/complete", async (req, res) => {
       throw dbError;
     }
 
-
     // Clean up challenge
     registrationChallenges.delete(targetUserId.toString());
 
     console.log(
-      `[WebAuthn] Registration completed successfully for userId: ${targetUserId}`
+      `[WebAuthn] Registration completed successfully for userId: ${targetUserId}`,
     );
 
     const responseData = {
@@ -439,7 +437,6 @@ router.post("/webauthn/register/complete", async (req, res) => {
       message: "Device biometric enrolled successfully.",
       credentialId: credentialIdString,
     };
-
 
     res.status(201).json(responseData);
   } catch (err) {
@@ -465,7 +462,7 @@ router.post("/webauthn/auth/options", async (req, res) => {
     // Get user's enrolled credentials
     const credentials = await pool.query(
       "SELECT credential_id FROM webauthn_credentials WHERE user_id = $1 AND is_active = TRUE",
-      [targetUserId]
+      [targetUserId],
     );
 
     if (credentials.rowCount === 0) {
@@ -549,7 +546,7 @@ router.post("/webauthn/auth/complete", async (req, res) => {
     const credentialId = authenticationResponse.id;
     const credentialResult = await pool.query(
       "SELECT credential_id, public_key, counter FROM webauthn_credentials WHERE credential_id = $1 AND user_id = $2 AND is_active = TRUE",
-      [credentialId, targetUserId]
+      [credentialId, targetUserId],
     );
 
     if (credentialResult.rowCount === 0) {
@@ -564,13 +561,13 @@ router.post("/webauthn/auth/complete", async (req, res) => {
       rawId: isoBase64URL.toBuffer(authenticationResponse.id),
       response: {
         clientDataJSON: isoBase64URL.toBuffer(
-          authenticationResponse.response.clientDataJSON
+          authenticationResponse.response.clientDataJSON,
         ),
         authenticatorData: isoBase64URL.toBuffer(
-          authenticationResponse.response.authenticatorData
+          authenticationResponse.response.authenticatorData,
         ),
         signature: isoBase64URL.toBuffer(
-          authenticationResponse.response.signature
+          authenticationResponse.response.signature,
         ),
         userHandle: authenticationResponse.response.userHandle
           ? isoBase64URL.toBuffer(authenticationResponse.response.userHandle)
@@ -614,7 +611,7 @@ router.post("/webauthn/auth/complete", async (req, res) => {
     // Update counter and last used timestamp
     await pool.query(
       "UPDATE webauthn_credentials SET counter = $1, last_used_at = CURRENT_TIMESTAMP WHERE credential_id = $2",
-      [verification.authenticationInfo.newCounter, credentialId]
+      [verification.authenticationInfo.newCounter, credentialId],
     );
 
     // Clean up challenge
@@ -645,9 +642,9 @@ router.post("/face/enroll", async (req, res) => {
 
     const targetUserId = userId || (authUser ? authUser.id : null);
     if (!targetUserId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: "User ID is required." 
+        message: "User ID is required.",
       });
     }
 
@@ -660,7 +657,7 @@ router.post("/face/enroll", async (req, res) => {
         for (const imageBase64 of images) {
           const base64Data = imageBase64.replace(
             /^data:image\/\w+;base64,/,
-            ""
+            "",
           );
           const buf = Buffer.from(base64Data, "base64");
           const descriptor = await extractEmbedding(buf);
@@ -724,7 +721,7 @@ router.post("/face/enroll", async (req, res) => {
     // Check if user already has a face enrolled
     const existingCheck = await pool.query(
       "SELECT id FROM biometric_face WHERE user_id = $1 AND is_active = TRUE",
-      [targetUserId]
+      [targetUserId],
     );
 
     // Persist embedding in users table for pgvector-based recognition
@@ -736,7 +733,7 @@ router.post("/face/enroll", async (req, res) => {
         `UPDATE biometric_face 
          SET encrypted_embedding = $1, enrolled_at = CURRENT_TIMESTAMP, is_active = TRUE
          WHERE user_id = $2`,
-        [encryptedEmbedding, targetUserId]
+        [encryptedEmbedding, targetUserId],
       );
 
       return res.json({
@@ -748,7 +745,7 @@ router.post("/face/enroll", async (req, res) => {
       await pool.query(
         `INSERT INTO biometric_face (user_id, encrypted_embedding, is_active)
          VALUES ($1, $2, TRUE)`,
-        [targetUserId, encryptedEmbedding]
+        [targetUserId, encryptedEmbedding],
       );
 
       // Set face_enrolled flag in users table
@@ -868,8 +865,7 @@ router.post("/face/verify-at-login", async (req, res) => {
       });
     }
 
-    const match =
-      bestMatch.match && parseInt(bestMatch.userId, 10) === userId;
+    const match = bestMatch.match && parseInt(bestMatch.userId, 10) === userId;
     const similarity = 1 - bestMatch.distance;
 
     if (!match) {
@@ -899,7 +895,6 @@ router.post("/face/verify-at-login", async (req, res) => {
   }
 });
 
-
 // ============================================
 // CONSENT ROUTES
 // ============================================
@@ -920,7 +915,7 @@ router.post("/consent", async (req, res) => {
     // Check if consent already exists
     const existingCheck = await pool.query(
       "SELECT id FROM biometric_consent WHERE user_id = $1",
-      [targetUserId]
+      [targetUserId],
     );
 
     if (existingCheck.rowCount > 0) {
@@ -934,7 +929,7 @@ router.post("/consent", async (req, res) => {
           ip || req.ip,
           userAgent || req.get("user-agent"),
           targetUserId,
-        ]
+        ],
       );
     } else {
       // Create new consent
@@ -946,7 +941,7 @@ router.post("/consent", async (req, res) => {
           method || "both",
           ip || req.ip,
           userAgent || req.get("user-agent"),
-        ]
+        ],
       );
     }
 
@@ -955,7 +950,10 @@ router.post("/consent", async (req, res) => {
       message: "Biometric consent recorded successfully.",
     });
   } catch (err) {
-    secureLog("Consent recording error", { operationStatus: "error", userId: targetUserId });
+    secureLog("Consent recording error", {
+      operationStatus: "error",
+      userId: targetUserId,
+    });
     res.status(500).json({ error: "Server error recording consent." });
   }
 });
@@ -980,19 +978,19 @@ router.get("/status", async (req, res) => {
     // Check WebAuthn enrollment
     const webauthnCheck = await pool.query(
       "SELECT id FROM webauthn_credentials WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
-      [targetUserId]
+      [targetUserId],
     );
 
     // Check face enrollment
     const faceCheck = await pool.query(
       "SELECT id FROM biometric_face WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
-      [targetUserId]
+      [targetUserId],
     );
 
     // Check consent
     const consentCheck = await pool.query(
       "SELECT id, method, consented_at FROM biometric_consent WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
-      [targetUserId]
+      [targetUserId],
     );
 
     res.json({
@@ -1005,7 +1003,10 @@ router.get("/status", async (req, res) => {
         consentCheck.rowCount > 0 ? consentCheck.rows[0].consented_at : null,
     });
   } catch (err) {
-    secureLog("Biometric status error", { operationStatus: "error", userId: targetUserId });
+    secureLog("Biometric status error", {
+      operationStatus: "error",
+      userId: targetUserId,
+    });
     res.status(500).json({ error: "Server error checking biometric status." });
   }
 });
