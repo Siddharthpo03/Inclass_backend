@@ -2,7 +2,7 @@ import http from "k6/http";
 import { check, sleep } from "k6";
 
 // How to run:
-//   BASE_URL=http://localhost:4000 npx k6 run backend/tests/load/login-test.js
+//   BASE_URL=https://api.inclass.siddharthp.com npx k6 run backend/tests/load/login-test.js
 // Or from backend package.json (after adding a script): npm run load:test
 
 export const options = {
@@ -24,7 +24,7 @@ export const options = {
   },
 };
 
-const BASE_URL = __ENV.BASE_URL || "http://localhost:4000";
+const BASE_URL = __ENV.BASE_URL || "https://api.inclass.siddharthp.com";
 
 function randomStudent() {
   const id = Math.floor(Math.random() * 1000) + 1;

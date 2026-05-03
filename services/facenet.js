@@ -101,7 +101,11 @@ async function extractEmbedding(imageBuffer) {
     const height = resized.bitmap.height;
     const rgbPixels = new Float32Array(width * height * 3);
 
-    for (let sourceIndex = 0, targetIndex = 0; sourceIndex < pixels.length; sourceIndex += 4) {
+    for (
+      let sourceIndex = 0, targetIndex = 0;
+      sourceIndex < pixels.length;
+      sourceIndex += 4
+    ) {
       rgbPixels[targetIndex++] = pixels[sourceIndex];
       rgbPixels[targetIndex++] = pixels[sourceIndex + 1];
       rgbPixels[targetIndex++] = pixels[sourceIndex + 2];

@@ -2,7 +2,7 @@ import http from "k6/http";
 import { check, sleep } from "k6";
 
 // How to run:
-//   BASE_URL=http://localhost:4000 ADMIN_TOKEN=your_jwt npx k6 run backend/tests/load/session-test.js
+//   BASE_URL=https://api.inclass.siddharthp.com ADMIN_TOKEN=your_jwt npx k6 run backend/tests/load/session-test.js
 //
 // This script simulates a small number of admin users creating attendance sessions.
 
@@ -22,7 +22,7 @@ export const options = {
   },
 };
 
-const BASE_URL = __ENV.BASE_URL || "http://localhost:4000";
+const BASE_URL = __ENV.BASE_URL || "https://api.inclass.siddharthp.com";
 const ADMIN_TOKEN = __ENV.ADMIN_TOKEN || "";
 
 function buildSessionPayload() {

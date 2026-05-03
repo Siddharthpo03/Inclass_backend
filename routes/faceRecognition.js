@@ -10,6 +10,24 @@ const upload = require("../middleware/upload");
 const logger = require("../utils/logger");
 const { extractEmbedding, isFaceNetAvailable } = require("../services/facenet");
 const { saveUserEmbedding, findBestMatch } = require("../services/faceMatcher");
+const { pool } = require("../db");
+const { encrypt } = require("../utils/crypto");
+
+// @route   GET /api/face/health
+// @desc    Report whether face recognition models are available
+// @access  Public
+router.get("/health", async (req, res) => {
+  const faceRecognitionAvailable = isFaceNetAvailable();
+
+  res.json({
+    status: faceRecognitionAvailable ? "ok" : "degraded",
+    faceRecognitionAvailable,
+    service: "face-recognition",
+    message: faceRecognitionAvailable
+      ? "Face recognition is ready."
+      : "Face recognition is running in fallback mode.",
+  });
+});
 
 function getImageBuffer(req) {
   // Multipart upload: file is saved by multer to backend/uploads
@@ -58,6 +76,31 @@ router.post("/enroll", upload.single("image"), async (req, res) => {
     const embedding = await extractEmbedding(imageBuffer);
 
     await saveUserEmbedding(userId, embedding);
+
+    const encryptedEmbedding = encrypt(JSON.stringify(embedding));
+    const existingFace = await pool.query(
+      "SELECT id FROM biometric_face WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
+      [userId],
+    );
+
+    if (existingFace.rowCount > 0) {
+      await pool.query(
+        `UPDATE biometric_face
+         SET encrypted_embedding = $1, enrolled_at = CURRENT_TIMESTAMP, is_active = TRUE
+         WHERE user_id = $2`,
+        [encryptedEmbedding, userId],
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO biometric_face (user_id, encrypted_embedding, is_active)
+         VALUES ($1, $2, TRUE)`,
+        [userId, encryptedEmbedding],
+      );
+    }
+
+    await pool.query("UPDATE users SET face_enrolled = TRUE WHERE id = $1", [
+      userId,
+    ]);
 
     return res.status(201).json({
       message: "Face enrolled successfully.",

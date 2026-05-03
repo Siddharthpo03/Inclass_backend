@@ -130,6 +130,7 @@ npm start
 ```bash
 curl http://localhost:4000/health
 curl http://localhost:4000/api/health
+curl http://localhost:4000/api/face/health
 ```
 
 Expected response:

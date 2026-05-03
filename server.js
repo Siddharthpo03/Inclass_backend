@@ -12,7 +12,6 @@ const logger = require("./utils/logger");
 // Optional Sentry integration for production monitoring (only when SENTRY_DSN is set)
 let Sentry = null;
 if (process.env.SENTRY_DSN) {
-  // eslint-disable-next-line global-require
   Sentry = require("@sentry/node");
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
@@ -34,6 +33,7 @@ const server = http.createServer(app);
 
 // Initialize Socket.io with the HTTP server, reusing CORS origins from app
 const allowedOrigins = (app.locals && app.locals.allowedOrigins) || [
+  "https://inclass.siddharthp.com",
   "http://localhost:5173",
 ];
 

@@ -2,7 +2,7 @@ import http from "k6/http";
 import { check, sleep } from "k6";
 
 // How to run:
-//   BASE_URL=http://localhost:4000 npx k6 run backend/tests/load/attendance-test.js
+//   BASE_URL=https://api.inclass.siddharthp.com npx k6 run backend/tests/load/attendance-test.js
 // From backend package.json:
 //   npm run load:test
 
@@ -25,7 +25,7 @@ export const options = {
   },
 };
 
-const BASE_URL = __ENV.BASE_URL || "http://localhost:4000";
+const BASE_URL = __ENV.BASE_URL || "https://api.inclass.siddharthp.com";
 
 // Example realistic payload for attendance marking
 function buildAttendancePayload() {

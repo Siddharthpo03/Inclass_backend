@@ -31,6 +31,38 @@ const generateToken = (id, role) => {
   });
 };
 
+function normalizeEmbedding(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => Number(entry));
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return parsed.map((entry) => Number(entry));
+    }
+  } catch {
+    // Fall through to brace-separated parsing.
+  }
+
+  const normalized = trimmed.replace(/^[\[{]/, "").replace(/[\]}]$/, "");
+  const parts = normalized
+    .split(",")
+    .map((entry) => Number(entry.trim()))
+    .filter((entry) => Number.isFinite(entry));
+
+  return parts.length > 0 ? parts : null;
+}
+
 // @route   GET /api/auth/check-email
 // @desc    Check if email exists and return role (for admin auto-detection)
 // @access  Public
@@ -352,13 +384,27 @@ router.post(
     // ============================================
     // If student role and face not enrolled, block JWT issuance
     if (user.role === "student") {
-      // Check if student has enrolled face
       const faceCheck = await pool.query(
-        `SELECT id FROM biometric_face WHERE user_id = $1 AND is_active = TRUE LIMIT 1`,
+        `SELECT
+           bf.id AS biometric_face_id,
+           bf.encrypted_embedding,
+           u.embedding AS legacy_embedding,
+           u.face_enrolled
+         FROM users u
+         LEFT JOIN biometric_face bf
+           ON bf.user_id = u.id AND bf.is_active = TRUE
+         WHERE u.id = $1
+         LIMIT 1`,
         [user.id],
       );
 
-      const hasFace = faceCheck.rowCount > 0;
+      const faceRecord = faceCheck.rows[0] || null;
+      const hasFace = Boolean(
+        faceRecord?.biometric_face_id ||
+          faceRecord?.encrypted_embedding ||
+          faceRecord?.legacy_embedding ||
+          faceRecord?.face_enrolled,
+      );
 
       // If no face enrollment, block login
       if (!hasFace) {
@@ -384,21 +430,35 @@ router.post(
     // Face verification for students and faculty (only if face is enrolled)
     if (user.role === "student" || user.role === "faculty") {
       const faceCheck = await pool.query(
-        "SELECT id FROM biometric_face WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
+        `SELECT
+           bf.id AS biometric_face_id,
+           bf.encrypted_embedding,
+           u.embedding AS legacy_embedding,
+           u.face_enrolled
+         FROM users u
+         LEFT JOIN biometric_face bf
+           ON bf.user_id = u.id AND bf.is_active = TRUE
+         WHERE u.id = $1
+         LIMIT 1`,
         [user.id],
       );
+
+      const faceRecord = faceCheck.rows[0] || null;
+      const hasBiometricFace = Boolean(faceRecord?.biometric_face_id);
+      const hasLegacyFace = Boolean(
+        faceRecord?.legacy_embedding || faceRecord?.face_enrolled,
+      );
+      const hasFace = hasBiometricFace || hasLegacyFace;
 
       console.log(`[Login] ========================================`);
       console.log(
         `[Login] User ${user.id} (${user.role}): Face enrolled = ${
-          faceCheck.rowCount > 0
+          hasFace
         }`,
       );
-      console.log(
-        `[Login] Face check query result: ${faceCheck.rowCount} rows`,
-      );
+      console.log(`[Login] Face check query result: ${faceCheck.rowCount} rows`);
 
-      if (faceCheck.rowCount > 0) {
+      if (hasFace) {
         console.log(`[Login] Face record found for user ${user.id}`);
       } else {
         console.log(
@@ -408,7 +468,7 @@ router.post(
       }
 
       // If face is enrolled, require face verification
-      if (faceCheck.rowCount > 0) {
+      if (hasFace) {
         const { embedding } = req.body;
 
         console.log(`[Login] Face enrolled, checking embedding...`);
@@ -448,16 +508,25 @@ router.post(
 
         // Call face verification endpoint logic
         const { decrypt } = require("../utils/crypto");
-        const storedResult = await pool.query(
-          "SELECT encrypted_embedding FROM biometric_face WHERE user_id = $1 AND is_active = TRUE",
-          [user.id],
-        );
+        let storedEmbedding = null;
 
-        if (storedResult.rowCount > 0) {
-          // Decrypt stored embedding
-          const decryptedEmbedding = JSON.parse(
-            decrypt(storedResult.rows[0].encrypted_embedding),
+        if (hasBiometricFace && faceRecord?.encrypted_embedding) {
+          storedEmbedding = JSON.parse(
+            decrypt(faceRecord.encrypted_embedding),
           );
+        } else if (hasLegacyFace && faceRecord?.legacy_embedding) {
+          storedEmbedding = normalizeEmbedding(faceRecord.legacy_embedding);
+        }
+
+        if (storedEmbedding) {
+          // Decrypt or normalize stored embedding depending on enrollment source
+          const normalizedInputEmbedding = normalizeEmbedding(embedding);
+
+          if (!normalizedInputEmbedding) {
+            throw new AuthenticationError(
+              "Invalid face embedding provided.",
+            );
+          }
 
           // Calculate cosine similarity
           function cosineSimilarity(vecA, vecB) {
@@ -479,7 +548,10 @@ router.post(
             return dotProduct / denominator;
           }
 
-          const similarity = cosineSimilarity(embedding, decryptedEmbedding);
+          const similarity = cosineSimilarity(
+            normalizedInputEmbedding,
+            storedEmbedding,
+          );
           const threshold = parseFloat(
             process.env.FACE_SIMILARITY_THRESHOLD || "0.62",
           );

@@ -1,9 +1,29 @@
 // inclass-backend/socket.js
 // Socket.io server with strict CORS (no wildcard) and structured logging.
-// Requires SOCKET_ORIGINS in .env.
+// Origins: prefer array from server.js (app.locals.allowedOrigins), else SOCKET_ORIGINS, else defaults.
 
 const logger = require("./utils/logger");
 const Sentry = process.env.SENTRY_DSN ? require("@sentry/node") : null;
+
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://inclass.siddharthp.com",
+  "http://localhost:5173",
+];
+
+function resolveAllowedOrigins(options = {}) {
+  if (Array.isArray(options.origin) && options.origin.length > 0) {
+    return options.origin;
+  }
+  if (process.env.SOCKET_ORIGINS) {
+    const fromEnv = process.env.SOCKET_ORIGINS.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (fromEnv.length > 0) {
+      return fromEnv;
+    }
+  }
+  return DEFAULT_ALLOWED_ORIGINS;
+}
 
 let io = null;
 let disconnectTimestamps = [];
@@ -12,22 +32,7 @@ module.exports = {
   init: (server, options = {}) => {
     const { Server } = require("socket.io");
 
-    // P2 RT-001: Strict Socket.io CORS – no wildcard fallback
-    if (!process.env.SOCKET_ORIGINS) {
-      throw new Error(
-        "CRITICAL SECURITY ERROR: SOCKET_ORIGINS must be defined."
-      );
-    }
-
-    const allowedOrigins = process.env.SOCKET_ORIGINS.split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    if (allowedOrigins.length === 0) {
-      throw new Error(
-        "CRITICAL SECURITY ERROR: SOCKET_ORIGINS must contain at least one origin (e.g. http://localhost:5173)."
-      );
-    }
+    const allowedOrigins = resolveAllowedOrigins(options);
 
     logger.info("Socket.io allowed origins", { origins: allowedOrigins });
 
@@ -40,7 +45,7 @@ module.exports = {
           if (allowedOrigins.includes(origin)) {
             return callback(null, true);
           }
-          const error = new Error("Socket.io CORS blocked");
+          const error = new Error("Not allowed by CORS: " + origin);
           logger.warn("Socket.io CORS blocked", { origin });
           if (Sentry) {
             Sentry.captureException(error);

@@ -134,88 +134,33 @@ app.use(
 );
 
 // --- SEC-003: Strict CORS Configuration ---
-// Production-grade CORS: Only allow specific origins based on environment
-// Treat NODE_ENV=test the same as development so tests don't require FRONTEND_URL.
-const isDevelopment =
-  process.env.NODE_ENV === "development" ||
-  process.env.NODE_ENV === "test" ||
-  !process.env.NODE_ENV;
-
-// Define allowed origins based on environment
-let allowedOrigins = [];
-
-if (isDevelopment) {
-  // Development: Only allow specific localhost ports
-  allowedOrigins = [
-    "http://localhost:5173", // Vite default port
-    "http://localhost:3000", // React default port
-  ];
-  logger.info(
-    "CORS: Development mode - Allowing: " + allowedOrigins.join(", "),
-  );
-} else {
-  // Production: Only allow FRONTEND_URL from environment
-  const frontendUrl = process.env.FRONTEND_URL;
-  if (!frontendUrl) {
-    logger.error(`
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  CRITICAL SECURITY ERROR: FRONTEND_URL is not set                            ║
-║  Server cannot start in production without FRONTEND_URL.                    ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
-To fix:
-1. Add to your .env file:
-   FRONTEND_URL=https://your-frontend-domain.com
-
-2. Restart the server
-
-SECURITY NOTE: Never use wildcard origins (*) in production.
-`);
-    process.exit(1);
-  }
-  allowedOrigins = [frontendUrl];
-  logger.info("CORS: Production mode - Allowing: " + frontendUrl);
-}
+// Allow only production frontend and local development frontend.
+const allowedOrigins = [
+  "https://inclass.siddharthp.com",
+  "http://localhost:5173",
+];
 
 // Expose allowedOrigins for Socket.io setup in server.js
 app.locals.allowedOrigins = allowedOrigins;
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Block requests with no origin (except for same-origin requests)
-      if (!origin) {
-        if (isDevelopment) {
-          logger.warn(
-            "CORS: Request with no origin header (allowed in development only)",
-          );
-          return callback(null, true);
-        }
-        return callback(
-          new Error(
-            "CORS: Requests without origin header are blocked in production",
-          ),
-        );
-      }
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    logger.warn("CORS: Blocked request from origin: " + origin);
+    return callback(new Error("Not allowed by CORS: " + origin));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  maxAge: 86400,
+};
 
-      // Validate origin is in allowed list
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      // Origin not allowed - log and block
-      logger.warn("CORS: Blocked request from origin: " + origin);
-      callback(
-        new Error(`CORS: Origin ${origin} is not allowed by CORS policy`),
-      );
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-    exposedHeaders: [],
-    maxAge: 86400,
-  }),
-);
+// Apply CORS before all routes/middleware that serve endpoints.
+app.use(cors(corsOptions));
+// Preflight: same allowlist as above (do not use bare cors() — it would not enforce origins).
+app.options("*", cors(corsOptions));
 
 // Body parsing middleware - but multer will handle multipart/form-data
 app.use(express.json());
@@ -232,13 +177,11 @@ const { initVectorSupport } = require("./config/database");
 // to prevent race conditions and noisy logs. Simple connectivity will still
 // be exercised via health checks.
 if (process.env.NODE_ENV !== "test") {
+  // In production, the server should not crash due to temporary DB issues
   pool.query("SELECT NOW()", async (err, res) => {
     if (err) {
-      logger.error(
-        "FATAL: Database connection failed. Check db.js and .env: " +
-          err.message,
-      );
-      process.exit(1);
+      logger.error("Database connection failed: " + err.message);
+      // Do NOT crash the server
     } else {
       logger.info(
         "PostgreSQL connected successfully. Date: " + res.rows[0].now,

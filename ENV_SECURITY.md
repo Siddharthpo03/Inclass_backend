@@ -163,6 +163,17 @@ If `.env` (or any env file) was committed or leaked:
 - **Optional:** `EMAIL_*`, Twilio, WebAuthn, pool/DB options. See `.env.example`.
 - All sensitive configuration is read from `process.env`; there are no default secrets in code. See `.env.example` for the list of variables.
 
+### Frontend Runtime Variables
+
+The frontend uses Vite environment variables at build time. These are not backend secrets, but they must be set correctly for deployed environments.
+
+- `VITE_API_BASE_URL` - API base URL for Axios requests.
+- `VITE_SOCKET_URL` - Socket.io server URL.
+- `VITE_ADMIN_BASE_URL` - Base URL for the admin login flow.
+- `VITE_BACKEND_ORIGIN` - Origin used for uploaded image URLs and other backend-hosted assets.
+
+If these are omitted in local development, the frontend defaults to localhost values automatically.
+
 ---
 
 ## 6. Checklist

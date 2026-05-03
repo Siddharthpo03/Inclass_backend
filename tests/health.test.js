@@ -13,5 +13,11 @@ describe("Health check endpoints", () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("status", "ok");
   });
-});
 
+  test("GET /api/face/health should return 200 and a status payload", async () => {
+    const res = await request(app).get("/api/face/health");
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("status");
+    expect(res.body).toHaveProperty("faceRecognitionAvailable");
+  });
+});

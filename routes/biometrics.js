@@ -987,6 +987,15 @@ router.get("/status", async (req, res) => {
       [targetUserId],
     );
 
+    const legacyFaceCheck = await pool.query(
+      `SELECT face_enrolled, embedding
+       FROM users
+       WHERE id = $1
+         AND (face_enrolled = TRUE OR embedding IS NOT NULL)
+       LIMIT 1`,
+      [targetUserId],
+    );
+
     // Check consent
     const consentCheck = await pool.query(
       "SELECT id, method, consented_at FROM biometric_consent WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
@@ -995,7 +1004,7 @@ router.get("/status", async (req, res) => {
 
     res.json({
       webauthn: webauthnCheck.rowCount > 0,
-      face: faceCheck.rowCount > 0,
+      face: faceCheck.rowCount > 0 || legacyFaceCheck.rowCount > 0,
       consent: consentCheck.rowCount > 0,
       consentMethod:
         consentCheck.rowCount > 0 ? consentCheck.rows[0].method : null,
