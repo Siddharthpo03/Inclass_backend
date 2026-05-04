@@ -76,7 +76,21 @@ router.post("/enroll", upload.single("image"), async (req, res) => {
 
     const embedding = await extractEmbedding(imageBuffer);
 
-    await saveUserEmbedding(userId, embedding);
+    let vectorSaved = false;
+    try {
+      await saveUserEmbedding(userId, embedding);
+      vectorSaved = true;
+    } catch (vectorError) {
+      logger.warn(
+        "Vector embedding save skipped; continuing with encrypted biometric face only",
+        {
+          userId,
+          operationStatus: "warning",
+          code: "VECTOR_SAVE_SKIPPED",
+        },
+      );
+      logger.debug?.("Vector save error detail", vectorError.message);
+    }
 
     const encryptedEmbedding = encrypt(JSON.stringify(embedding));
     const existingFace = await pool.query(
@@ -106,6 +120,7 @@ router.post("/enroll", upload.single("image"), async (req, res) => {
     return res.status(201).json({
       message: "Face enrolled successfully.",
       embeddingSize: embedding.length,
+      vectorSaved,
       note: !isFaceNetAvailable()
         ? "Face recognition is using placeholder embeddings (ONNX Runtime unavailable). Attendance will work but face verification may be limited."
         : undefined,
