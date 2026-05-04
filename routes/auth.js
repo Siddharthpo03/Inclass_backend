@@ -205,9 +205,10 @@ router.post(
     const name = req.body.name;
     const email = req.body.email;
     const password = req.body.password;
-    const role = typeof req.body.role === "string"
-      ? req.body.role.trim().toLowerCase()
-      : req.body.role;
+    const role =
+      typeof req.body.role === "string"
+        ? req.body.role.trim().toLowerCase()
+        : req.body.role;
     const roll_no = req.body.roll_no;
     const mobile_number = req.body.mobile_number;
     const country_code = req.body.country_code;
@@ -372,9 +373,10 @@ router.post(
     }
 
     // If role was provided by the client, validate it; otherwise infer from DB
-    let role = typeof req.body.role === "string"
-      ? req.body.role.trim().toLowerCase()
-      : req.body.role;
+    let role =
+      typeof req.body.role === "string"
+        ? req.body.role.trim().toLowerCase()
+        : req.body.role;
     if (role) validateRole(role);
 
     // If client didn't provide a role, use the stored user role
