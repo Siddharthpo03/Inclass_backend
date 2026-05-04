@@ -160,7 +160,9 @@ const corsOptions = {
 // Apply CORS before all routes/middleware that serve endpoints.
 app.use(cors(corsOptions));
 // Preflight: same allowlist as above (do not use bare cors() — it would not enforce origins).
-app.options("*", cors(corsOptions));
+// Use '/*' to match all paths for preflight; plain '*' can break path-to-regexp
+// Match all routes for preflight using a regex to avoid path-to-regexp parsing issues
+app.options(/.*/, cors(corsOptions));
 
 // Body parsing middleware - but multer will handle multipart/form-data
 app.use(express.json());
