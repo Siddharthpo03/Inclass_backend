@@ -5,7 +5,12 @@ require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 
 const express = require("express");
 const cors = require("cors");
-const helmet = require("helmet");
+// Helmet package may export via `.default` depending on bundler/ts settings.
+const _helmetPkg = require("helmet");
+const helmet =
+  typeof _helmetPkg === "function"
+    ? _helmetPkg
+    : _helmetPkg.default || _helmetPkg;
 const pool = require("./db");
 const errorHandler = require("./middleware/errorHandler");
 const logger = require("./utils/logger");

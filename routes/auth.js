@@ -205,7 +205,9 @@ router.post(
     const name = req.body.name;
     const email = req.body.email;
     const password = req.body.password;
-    const role = req.body.role;
+    const role = typeof req.body.role === "string"
+      ? req.body.role.trim().toLowerCase()
+      : req.body.role;
     const roll_no = req.body.roll_no;
     const mobile_number = req.body.mobile_number;
     const country_code = req.body.country_code;
@@ -370,17 +372,19 @@ router.post(
     }
 
     // If role was provided by the client, validate it; otherwise infer from DB
-    let role = req.body.role;
+    let role = typeof req.body.role === "string"
+      ? req.body.role.trim().toLowerCase()
+      : req.body.role;
     if (role) validateRole(role);
 
     // If client didn't provide a role, use the stored user role
     role = role || user.role;
 
     // Ensure client-provided role (if any) matches stored role
-    if (req.body.role && user.role !== req.body.role) {
+    if (role && user.role !== role) {
       throw new AuthenticationError(
         "Role mismatch. Please select the correct role.",
-        { expected: req.body.role, actual: user.role },
+        { expected: role, actual: user.role },
       );
     }
 
@@ -420,9 +424,9 @@ router.post(
       const faceRecord = faceCheck.rows[0] || null;
       const hasFace = Boolean(
         faceRecord?.biometric_face_id ||
-          faceRecord?.encrypted_embedding ||
-          faceRecord?.legacy_embedding ||
-          faceRecord?.face_enrolled,
+        faceRecord?.encrypted_embedding ||
+        faceRecord?.legacy_embedding ||
+        faceRecord?.face_enrolled,
       );
 
       // If no face enrollment, block login
@@ -471,11 +475,11 @@ router.post(
 
       console.log(`[Login] ========================================`);
       console.log(
-        `[Login] User ${user.id} (${user.role}): Face enrolled = ${
-          hasFace
-        }`,
+        `[Login] User ${user.id} (${user.role}): Face enrolled = ${hasFace}`,
       );
-      console.log(`[Login] Face check query result: ${faceCheck.rowCount} rows`);
+      console.log(
+        `[Login] Face check query result: ${faceCheck.rowCount} rows`,
+      );
 
       if (hasFace) {
         console.log(`[Login] Face record found for user ${user.id}`);
@@ -530,9 +534,7 @@ router.post(
         let storedEmbedding = null;
 
         if (hasBiometricFace && faceRecord?.encrypted_embedding) {
-          storedEmbedding = JSON.parse(
-            decrypt(faceRecord.encrypted_embedding),
-          );
+          storedEmbedding = JSON.parse(decrypt(faceRecord.encrypted_embedding));
         } else if (hasLegacyFace && faceRecord?.legacy_embedding) {
           storedEmbedding = normalizeEmbedding(faceRecord.legacy_embedding);
         }
@@ -542,9 +544,7 @@ router.post(
           const normalizedInputEmbedding = normalizeEmbedding(embedding);
 
           if (!normalizedInputEmbedding) {
-            throw new AuthenticationError(
-              "Invalid face embedding provided.",
-            );
+            throw new AuthenticationError("Invalid face embedding provided.");
           }
 
           // Calculate cosine similarity
