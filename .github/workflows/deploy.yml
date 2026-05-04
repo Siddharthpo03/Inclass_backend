@@ -18,5 +18,6 @@ jobs:
           script: |
             cd /home/ubuntu/Inclass_backend
             git pull origin main
-            npm install --production
+            rm -rf node_modules
+            npm install
             pm2 restart all --update-env
