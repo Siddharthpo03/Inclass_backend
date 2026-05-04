@@ -345,20 +345,11 @@ router.post(
   "/login",
   loginLimiter,
   asyncHandler(async (req, res) => {
-    const { email, password, role } = req.body; // Frontend sends email as 'username'
+    const { email, password } = req.body; // Frontend sends email as 'username'
 
-    // Validate required fields
-    validateRequired(["email", "password", "role"], req.body);
+    // Validate required fields (role is optional; infer from DB if omitted)
+    validateRequired(["email", "password"], req.body);
     validateEmail(email);
-    validateRole(role);
-
-    // BLOCK ADMIN LOGIN FROM REGULAR ENDPOINT
-    // Admins must use the separate /inclass/admin/login endpoint
-    if (role === "admin") {
-      throw new AuthenticationError(
-        "Admin accounts must use the admin login page at /inclass/admin/login",
-      );
-    }
 
     // SECURE: Parameterized query prevents SQL injection (login)
     const result = await pool.query("SELECT * FROM users WHERE email = $1", [
@@ -378,11 +369,26 @@ router.post(
       );
     }
 
-    // Check role match
-    if (user.role !== role) {
+    // If role was provided by the client, validate it; otherwise infer from DB
+    let role = req.body.role;
+    if (role) validateRole(role);
+
+    // If client didn't provide a role, use the stored user role
+    role = role || user.role;
+
+    // Ensure client-provided role (if any) matches stored role
+    if (req.body.role && user.role !== req.body.role) {
       throw new AuthenticationError(
         "Role mismatch. Please select the correct role.",
-        { expected: role, actual: user.role },
+        { expected: req.body.role, actual: user.role },
+      );
+    }
+
+    // BLOCK ADMIN LOGIN FROM REGULAR ENDPOINT
+    // Admins must use the separate /inclass/admin/login endpoint
+    if (role === "admin") {
+      throw new AuthenticationError(
+        "Admin accounts must use the admin login page at /inclass/admin/login",
       );
     }
 
