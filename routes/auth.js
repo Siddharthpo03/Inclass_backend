@@ -134,13 +134,26 @@ router.get(
 // @desc    Register User (with file upload support)
 const upload = require("../middleware/upload");
 
+// Make multer optional: only run it when Content-Type is multipart/form-data
+function optionalMultipartFields(fields) {
+  return (req, res, next) => {
+    const contentType = (req.headers["content-type"] || "").toLowerCase();
+    if (contentType.startsWith("multipart/form-data")) {
+      return upload.fields(fields)(req, res, next);
+    }
+    // Ensure req.body is at least an empty object for downstream code
+    if (!req.body) req.body = {};
+    return next();
+  };
+}
+
 router.post(
   "/register",
   authLimiter,
-  upload.fields([
+  optionalMultipartFields([
     { name: "passportPhoto", maxCount: 1 },
     { name: "faceImage", maxCount: 1 },
-  ]), // Handle multiple file uploads
+  ]), // Handle multiple file uploads when present
   asyncHandler(async (req, res) => {
     // Debug: Log what we received
     console.log("📥 Registration request received");

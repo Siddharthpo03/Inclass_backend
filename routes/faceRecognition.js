@@ -10,7 +10,8 @@ const upload = require("../middleware/upload");
 const logger = require("../utils/logger");
 const { extractEmbedding, isFaceNetAvailable } = require("../services/facenet");
 const { saveUserEmbedding, findBestMatch } = require("../services/faceMatcher");
-const { pool } = require("../db");
+// `db.js` exports the Pool instance directly. Do not destructure.
+const pool = require("../db");
 const { encrypt } = require("../utils/crypto");
 
 // @route   GET /api/face/health
