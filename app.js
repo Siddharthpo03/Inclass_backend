@@ -226,9 +226,6 @@ const biometricsRoutes = require("./routes/biometrics");
 const reportsRoutes = require("./routes/reports");
 const registrationsRoutes = require("./routes/registrations");
 
-// Initialize SMS service (Twilio)
-require("./utils/sms");
-
 // --- API Endpoints ---
 // IMPORTANT: Mount registrations routes BEFORE faculty routes to avoid route conflicts
 // registrations.js has routes like /faculty/courses/:courseId/registrations

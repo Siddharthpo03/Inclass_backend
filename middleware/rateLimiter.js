@@ -95,13 +95,14 @@ const globalLimiter = rateLimit({
   skip: () => process.env.NODE_ENV === "test",
 });
 
-// -------- OTP limiters (existing behavior, unchanged) --------
+// -------- OTP limiters --------
 const otpSendLimiter = rateLimit({
-  windowMs: 60 * 1000,
+  windowMs: 60 * 60 * 1000,
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: keyGen,
+  keyGenerator: (req) =>
+    req.otpRecipientEmail || req.body?.email || req.body?.userId || keyGen(req),
   handler: (req, res) => {
     res.status(429).json({
       success: false,

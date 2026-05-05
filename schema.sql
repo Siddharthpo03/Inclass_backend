@@ -410,19 +410,16 @@ CREATE INDEX IF NOT EXISTS idx_pending_students_faculty_id ON pending_students(f
 CREATE INDEX IF NOT EXISTS idx_pending_students_status ON pending_students(status);
 
 -- ---------------------------------------------------------------------------
--- 16. OTPS
+-- 16. OTPS (Email-based one-time codes)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS otps (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE NOT NULL,
-    otp_hash VARCHAR(255) NOT NULL,
-    expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-    is_used BOOLEAN DEFAULT FALSE NOT NULL,
-    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    phone VARCHAR(15) PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    otp_hash VARCHAR(64) NOT NULL,
+    expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_otps_user_id ON otps(user_id);
+CREATE INDEX IF NOT EXISTS idx_otps_email ON otps(email);
 CREATE INDEX IF NOT EXISTS idx_otps_expires_at ON otps(expires_at);
-CREATE INDEX IF NOT EXISTS idx_otps_is_used ON otps(is_used);
 
 -- ---------------------------------------------------------------------------
 -- 17. COURSES (Course catalog)

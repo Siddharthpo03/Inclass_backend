@@ -5,6 +5,7 @@ const router = express.Router();
 const pool = require("../db");
 const auth = require("../middleware/auth");
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const {
   asyncHandler,
@@ -22,6 +23,7 @@ const {
   otpSendLimiter,
   otpVerifyLimiter,
 } = require("../middleware/rateLimiter");
+const { sendOtpEmail } = require("../utils/email");
 
 // Utility to generate JWT (requires JWT_SECRET in .env)
 // Token expires in 24 hours for security (production best practice)
@@ -61,6 +63,152 @@ function normalizeEmbedding(value) {
     .filter((entry) => Number.isFinite(entry));
 
   return parts.length > 0 ? parts : null;
+}
+
+const allowedEmailDomains = (process.env.ALLOWED_EMAIL_DOMAINS || "")
+  .split(",")
+  .map((entry) => entry.trim().toLowerCase())
+  .filter(Boolean)
+  .map((entry) => entry.replace(/^@/, ""));
+
+function getEmailDomain(email) {
+  if (!email || typeof email !== "string") {
+    return "";
+  }
+
+  const parts = email.trim().toLowerCase().split("@");
+  return parts.length === 2 ? parts[1] : "";
+}
+
+function isAllowedEmailDomain(email) {
+  if (allowedEmailDomains.length === 0) {
+    return true;
+  }
+
+  const domain = getEmailDomain(email);
+  if (!domain) {
+    return false;
+  }
+
+  return allowedEmailDomains.some(
+    (allowedDomain) =>
+      domain === allowedDomain || domain.endsWith(`.${allowedDomain}`),
+  );
+}
+
+function normalizeOtpPhoneKey(mobileNumber, countryCode) {
+  const raw = `${countryCode || ""}${mobileNumber || ""}`
+    .replace(/\D/g, "")
+    .trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  return raw.slice(0, 15);
+}
+
+function generateOtpCode() {
+  return crypto.randomInt(0, 1000000).toString().padStart(6, "0");
+}
+
+function hashOtpCode(otp) {
+  return crypto.createHash("sha256").update(String(otp)).digest("hex");
+}
+
+function timingSafeEquals(a, b) {
+  const bufferA = Buffer.from(String(a || ""), "hex");
+  const bufferB = Buffer.from(String(b || ""), "hex");
+
+  if (bufferA.length !== bufferB.length || bufferA.length === 0) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(bufferA, bufferB);
+}
+
+function maskEmail(email) {
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    return "your college email";
+  }
+
+  const [localPart, domainPart] = email.split("@");
+  const maskedLocal =
+    localPart.length <= 2
+      ? `${localPart[0] || "*"}*`
+      : `${localPart.slice(0, 2)}***`;
+  const domainPieces = domainPart.split(".");
+  const maskedDomain = domainPieces
+    .map((piece, index) => {
+      if (index === domainPieces.length - 1) {
+        return piece;
+      }
+      return piece.length <= 2
+        ? `${piece[0] || "*"}*`
+        : `${piece.slice(0, 2)}***`;
+    })
+    .join(".");
+
+  return `${maskedLocal}@${maskedDomain}`;
+}
+
+async function loadOtpRecipientByUserId(userId) {
+  const userResult = await pool.query(
+    "SELECT id, name, email, mobile_number, country_code FROM users WHERE id = $1",
+    [userId],
+  );
+
+  if (userResult.rowCount === 0) {
+    throw new NotFoundError("User not found.");
+  }
+
+  const user = userResult.rows[0];
+
+  if (!user.email) {
+    throw new ValidationError(
+      "Email is required. Please update your profile with a valid college email.",
+    );
+  }
+
+  if (!isAllowedEmailDomain(user.email)) {
+    throw new ValidationError(
+      "Email domain is not allowed. Please use your approved college email address.",
+    );
+  }
+
+  const phoneKey = normalizeOtpPhoneKey(user.mobile_number, user.country_code);
+  if (!phoneKey) {
+    throw new ValidationError(
+      "Mobile number is required for OTP compatibility. Please update your profile.",
+    );
+  }
+
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phoneKey,
+  };
+}
+
+async function resolveOtpRecipient(req, res, next) {
+  try {
+    const authUser = req.user;
+    const targetUserId = req.body.userId || (authUser ? authUser.id : null);
+
+    if (!targetUserId) {
+      throw new ValidationError(
+        "User ID is required. Please provide userId in request body or authenticate with a valid token.",
+      );
+    }
+
+    const recipient = await loadOtpRecipientByUserId(targetUserId);
+    req.otpRecipient = recipient;
+    req.otpRecipientEmail = recipient.email;
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 }
 
 // @route   GET /api/auth/check-email
@@ -629,212 +777,57 @@ router.get(
   }),
 );
 
-// @route   POST /api/auth/submit-pending-student
-// @desc    Submit student registration for faculty approval
-// @access  Public (student submits before login)
-router.post(
-  "/submit-pending-student",
-  asyncHandler(async (req, res) => {
-    const { studentId, facultyId } = req.body;
-
-    if (!studentId || !facultyId) {
-      throw new ValidationError("Student ID and Faculty ID are required.");
-    }
-
-    // Check if student exists
-    const studentCheck = await pool.query(
-      "SELECT id, role FROM users WHERE id = $1",
-      [studentId],
-    );
-    if (
-      studentCheck.rowCount === 0 ||
-      studentCheck.rows[0].role !== "student"
-    ) {
-      throw new NotFoundError("Student not found.");
-    }
-
-    // Check if faculty exists
-    const facultyCheck = await pool.query(
-      "SELECT id, role FROM users WHERE id = $1",
-      [facultyId],
-    );
-    if (
-      facultyCheck.rowCount === 0 ||
-      facultyCheck.rows[0].role !== "faculty"
-    ) {
-      throw new NotFoundError("Faculty not found.");
-    }
-
-    // Insert or update pending student record
-    const result = await pool.query(
-      `INSERT INTO pending_students (student_id, faculty_id, status)
-       VALUES ($1, $2, 'Pending')
-       ON CONFLICT (student_id, faculty_id) 
-       DO UPDATE SET status = 'Pending', created_at = CURRENT_TIMESTAMP
-       RETURNING id, student_id, faculty_id, status, created_at`,
-      [studentId, facultyId],
-    );
-
-    res.status(201).json({
-      success: true,
-      message:
-        "Registration request submitted successfully. Faculty will review your application.",
-      pendingRequest: result.rows[0],
-    });
-  }),
-);
-
-// @route   GET /api/auth/colleges
-// @desc    Get list of all active colleges/universities
-// @access  Public
-router.get(
-  "/colleges",
-  asyncHandler(async (req, res) => {
-    const { search } = req.query;
-
-    let query =
-      "SELECT id, name, country, state, city, type FROM colleges WHERE is_active = true";
-    let params = [];
-
-    if (search && search.trim().length > 0) {
-      query += " AND name ILIKE $1";
-      params.push(`%${search.trim()}%`);
-    }
-
-    query += " ORDER BY name ASC";
-
-    // SECURE: Parameterized query (search in params) prevents SQL injection
-    const result = await pool.query(query, params);
-
-    res.json({
-      colleges: result.rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        country: row.country,
-        state: row.state,
-        city: row.city,
-        type: row.type,
-      })),
-    });
-  }),
-);
-
-// @route   GET /api/auth/departments
-// @desc    Get list of all active departments
-// @access  Public
-router.get(
-  "/departments",
-  asyncHandler(async (req, res) => {
-    const { search } = req.query;
-
-    let query =
-      "SELECT id, name, code, description FROM departments WHERE is_active = true";
-    let params = [];
-
-    if (search && search.trim().length > 0) {
-      query += " AND (name ILIKE $1 OR code ILIKE $1)";
-      params.push(`%${search.trim()}%`);
-    }
-
-    query += " ORDER BY name ASC";
-
-    // SECURE: Parameterized query (search in params) prevents SQL injection
-    console.log("[Departments API] Query:", query, "Params:", params);
-    const result = await pool.query(query, params);
-    console.log("[Departments API] Found", result.rowCount, "departments");
-
-    res.json({
-      departments: result.rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        code: row.code,
-        description: row.description,
-      })),
-    });
-  }),
-);
-
 // @route   POST /api/auth/send-otp
-// @desc    Send OTP to user's mobile number via SMS (Twilio)
+// @desc    Send OTP to user's college email
 // @access  Public (during onboarding) or Private
 router.post(
   "/send-otp",
+  resolveOtpRecipient,
   otpSendLimiter,
   asyncHandler(async (req, res) => {
-    const { userId } = req.body;
-    const authUser = req.user; // From auth middleware if present
+    const { id: targetUserId, name, email, phoneKey } = req.otpRecipient;
 
-    const targetUserId = userId || (authUser ? authUser.id : null);
-    if (!targetUserId) {
-      throw new ValidationError(
-        "User ID is required. Please provide userId in request body or authenticate with a valid token.",
-      );
-    }
+    const otp = generateOtpCode();
+    const otpHash = hashOtpCode(otp);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Get user mobile number and country code
-    const userResult = await pool.query(
-      "SELECT id, name, mobile_number, country_code FROM users WHERE id = $1",
-      [targetUserId],
-    );
-
-    if (userResult.rowCount === 0) {
-      throw new NotFoundError("User not found.");
-    }
-
-    const user = userResult.rows[0];
-
-    // Validate mobile number exists
-    if (!user.mobile_number) {
-      throw new ValidationError(
-        "Mobile number is required. Please update your profile with a valid mobile number.",
-      );
-    }
-
-    // Format phone number with country code (E.164 format)
-    const countryCode = user.country_code || "+1";
-    // Remove any existing + from mobile_number if present
-    const cleanMobile = user.mobile_number
-      .replace(/^\+/, "")
-      .replace(/[\s\-\(\)]/g, "");
-    const phoneNumber = countryCode + cleanMobile;
-
-    // Send OTP via SMS using Twilio
-    const { sendOtpSms } = require("../utils/sms");
-    const smsResult = await sendOtpSms(phoneNumber);
-
-    if (!smsResult.success) {
-      console.error("Failed to send OTP SMS:", smsResult.error);
-      throw new ValidationError(
-        smsResult.error ||
-          "Failed to send OTP. Please check your mobile number and try again.",
-      );
-    }
-
-    // Store verification SID in database for tracking (optional)
-    // Note: With Twilio Verify, we don't need to store OTP hash ourselves
-    // Twilio handles OTP generation and verification
     await pool.query(
-      `INSERT INTO otps (user_id, otp_hash, expires_at, is_used)
-       VALUES ($1, $2, $3, FALSE)
-       ON CONFLICT DO NOTHING`,
-      [
-        targetUserId,
-        `twilio_${smsResult.sid}`,
-        new Date(Date.now() + 5 * 60 * 1000),
-      ], // 5 minutes
+      `INSERT INTO otps (phone, email, otp_hash, expires_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (phone)
+       DO UPDATE SET email = EXCLUDED.email,
+                     otp_hash = EXCLUDED.otp_hash,
+                     expires_at = EXCLUDED.expires_at`,
+      [phoneKey, email, otpHash, expiresAt],
     );
+
+    const { success, error, messageId } = await sendOtpEmail({
+      to: email,
+      name,
+      otp,
+      expiresInMinutes: 10,
+    });
+
+    if (!success) {
+      throw new ValidationError(
+        error || "Failed to send OTP via email. Please try again.",
+      );
+    }
 
     res.json({
       success: true,
-      message: "OTP sent successfully to your mobile number.",
-      expiresIn: 300, // 5 minutes in seconds
-      phoneNumber: phoneNumber.replace(/(\d{3})\d{4}(\d{4})/, "$1****$2"), // Masked phone number
+      message: "OTP sent successfully to your college email.",
+      expiresIn: 600,
+      maskedEmail: maskEmail(email),
+      deliveryMethod: "email",
+      messageId,
+      userId: targetUserId,
     });
   }),
 );
 
 // @route   POST /api/auth/verify-otp
-// @desc    Verify OTP using Twilio Verify API
+// @desc    Verify email OTP
 // @access  Public (during onboarding) or Private
 router.post(
   "/verify-otp",
@@ -848,54 +841,46 @@ router.post(
       throw new ValidationError("User ID is required.");
     }
 
-    if (!otp || otp.length < 4 || otp.length > 8) {
-      throw new ValidationError("Valid OTP code is required (4-8 digits).");
+    if (!/^[0-9]{6}$/.test(String(otp || ""))) {
+      throw new ValidationError("Valid 6-digit OTP code is required.");
     }
 
-    // Get user mobile number and country code
-    const userResult = await pool.query(
-      "SELECT id, mobile_number, country_code FROM users WHERE id = $1",
-      [targetUserId],
+    const recipient = await loadOtpRecipientByUserId(targetUserId);
+    const otpResult = await pool.query(
+      "SELECT phone, email, otp_hash, expires_at FROM otps WHERE phone = $1 AND email = $2 LIMIT 1",
+      [recipient.phoneKey, recipient.email],
     );
 
-    if (userResult.rowCount === 0) {
-      throw new NotFoundError("User not found.");
-    }
-
-    const user = userResult.rows[0];
-
-    if (!user.mobile_number) {
-      throw new ValidationError(
-        "Mobile number not found. Please update your profile.",
-      );
-    }
-
-    // Format phone number with country code (E.164 format)
-    const countryCode = user.country_code || "+1";
-    // Remove any existing + from mobile_number if present
-    const cleanMobile = user.mobile_number
-      .replace(/^\+/, "")
-      .replace(/[\s\-\(\)]/g, "");
-    const phoneNumber = countryCode + cleanMobile;
-
-    // Verify OTP using Twilio
-    const { verifyOtpSms } = require("../utils/sms");
-    const verifyResult = await verifyOtpSms(phoneNumber, otp);
-
-    if (!verifyResult.success) {
+    if (otpResult.rowCount === 0) {
       throw new AuthenticationError(
-        verifyResult.error ||
-          "Invalid or expired OTP. Please request a new one.",
+        "Invalid or expired OTP. Please request a new one.",
       );
     }
 
-    // Mark OTP as used in database (if we stored it)
-    await pool.query(
-      `UPDATE otps SET is_used = TRUE 
-       WHERE user_id = $1 AND is_used = FALSE 
-       AND expires_at > CURRENT_TIMESTAMP`,
-      [targetUserId],
-    );
+    const record = otpResult.rows[0];
+    const expiresAt = new Date(record.expires_at);
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() < Date.now()) {
+      await pool.query("DELETE FROM otps WHERE phone = $1 AND email = $2", [
+        recipient.phoneKey,
+        recipient.email,
+      ]);
+      throw new AuthenticationError(
+        "Invalid or expired OTP. Please request a new one.",
+      );
+    }
+
+    const hashedInput = hashOtpCode(otp);
+    if (!timingSafeEquals(record.otp_hash, hashedInput)) {
+      throw new AuthenticationError(
+        "Invalid or expired OTP. Please request a new one.",
+      );
+    }
+
+    // Single-use OTP: delete immediately after successful verification
+    await pool.query("DELETE FROM otps WHERE phone = $1 AND email = $2", [
+      recipient.phoneKey,
+      recipient.email,
+    ]);
 
     res.json({
       success: true,

@@ -68,7 +68,7 @@ cp backend/.env.production.template backend/.env.production
 # - BIOMETRIC_ENCRYPTION_KEY (generate same way)
 # - FRONTEND_URL
 # - Email credentials
-# - Twilio credentials (if needed)
+# - Gmail SMTP credentials for OTP email delivery
 ```
 
 ### 2. Build and Test (10 minutes)

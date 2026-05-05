@@ -103,7 +103,7 @@ If `.env` (or any env file) was committed or leaked:
    - Change the email account password (or app password) and set new `EMAIL_USER` / `EMAIL_PASS`.
 
 5. **Other**
-   - Rotate Twilio, API keys, and any other credentials that were in the committed file.
+   - Rotate email app passwords, API keys, and any other credentials that were in the committed file.
 
 ---
 
@@ -160,7 +160,7 @@ If `.env` (or any env file) was committed or leaked:
 
 - **Entry point:** `index.js` runs `require("dotenv").config({ path: ... })` first so `.env` is loaded before any other code.
 - **Required for startup:** `DATABASE_URL`, `JWT_SECRET` (length ≥ 32), `BIOMETRIC_ENCRYPTION_KEY` (length ≥ 32). In production, `FRONTEND_URL` is required.
-- **Optional:** `EMAIL_*`, Twilio, WebAuthn, pool/DB options. See `.env.example`.
+- **Optional:** `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `ALLOWED_EMAIL_DOMAINS`, WebAuthn, pool/DB options. See `.env.example`.
 - All sensitive configuration is read from `process.env`; there are no default secrets in code. See `.env.example` for the list of variables.
 
 ### Frontend Runtime Variables

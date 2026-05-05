@@ -12,7 +12,7 @@ This checklist ensures your backend is production-ready before deployment.
 - [ ] `BIOMETRIC_ENCRYPTION_KEY` is set (64 hex characters for AES-256)
 - [ ] `FRONTEND_URL` is set to production domain
 - [ ] All email service credentials (`EMAIL_USER`, `EMAIL_PASS`) are configured
-- [ ] SMS service credentials (Twilio `ACCOUNT_SID`, `AUTH_TOKEN`) are set
+- [ ] Gmail SMTP credentials (`GMAIL_USER`, `GMAIL_APP_PASSWORD`) are set
 - [ ] `SENTRY_DSN` is configured for error tracking (optional but recommended)
 
 ### 2. Security Hardening
