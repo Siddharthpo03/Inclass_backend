@@ -777,6 +777,74 @@ router.get(
   }),
 );
 
+// @route   GET /api/auth/colleges
+// @desc    Get list of all active colleges/universities
+// @access  Public
+router.get(
+  "/colleges",
+  asyncHandler(async (req, res) => {
+    const { search } = req.query;
+
+    let query =
+      "SELECT id, name, country, state, city, type FROM colleges WHERE is_active = true";
+    const params = [];
+
+    if (search && search.trim().length > 0) {
+      query += " AND name ILIKE $1";
+      params.push(`%${search.trim()}%`);
+    }
+
+    query += " ORDER BY name ASC";
+
+    // SECURE: Parameterized query (search in params) prevents SQL injection
+    const result = await pool.query(query, params);
+
+    res.json({
+      colleges: result.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        country: row.country,
+        state: row.state,
+        city: row.city,
+        type: row.type,
+      })),
+    });
+  }),
+);
+
+// @route   GET /api/auth/departments
+// @desc    Get list of all active departments
+// @access  Public
+router.get(
+  "/departments",
+  asyncHandler(async (req, res) => {
+    const { search } = req.query;
+
+    let query =
+      "SELECT id, name, code, description FROM departments WHERE is_active = true";
+    const params = [];
+
+    if (search && search.trim().length > 0) {
+      query += " AND (name ILIKE $1 OR code ILIKE $1)";
+      params.push(`%${search.trim()}%`);
+    }
+
+    query += " ORDER BY name ASC";
+
+    // SECURE: Parameterized query (search in params) prevents SQL injection
+    const result = await pool.query(query, params);
+
+    res.json({
+      departments: result.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        code: row.code,
+        description: row.description,
+      })),
+    });
+  }),
+);
+
 // @route   POST /api/auth/send-otp
 // @desc    Send OTP to user's college email
 // @access  Public (during onboarding) or Private
