@@ -220,6 +220,7 @@ app.use(metrics.requestDurationMiddleware);
 // Import your route handlers
 const authRoutes = require("./routes/auth");
 const attendanceRoutes = require("./routes/attendance");
+const studentRoutes = require("./routes/student");
 const facultyRoutes = require("./routes/faculty");
 const faceRecognitionRoutes = require("./routes/faceRecognition");
 const biometricsRoutes = require("./routes/biometrics");
@@ -231,6 +232,7 @@ const registrationsRoutes = require("./routes/registrations");
 // registrations.js has routes like /faculty/courses/:courseId/registrations
 app.use("/api/registrations", registrationsRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/student", studentRoutes);
 app.use("/api/faculty", facultyRoutes);
 // Attendance: 30 req/min per IP (stricter than global)
 app.use("/api/attendance", attendanceLimiter, attendanceRoutes);

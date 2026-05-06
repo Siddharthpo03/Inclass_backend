@@ -207,6 +207,7 @@ router.post("/mark", auth(["student"]), async (req, res) => {
     );
 
     res.json({
+      success: true,
       message: "Attendance marked successfully.",
       attendanceId: attendanceRecord.id,
       timestamp: attendanceRecord.created_at,
