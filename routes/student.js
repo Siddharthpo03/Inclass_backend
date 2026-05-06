@@ -130,7 +130,8 @@ router.get("/attendance-stats", auth(["student"]), async (req, res) => {
     const totalClasses = Number(stats.total_classes || 0);
     const present = Number(stats.present || 0);
     const absent = Number(stats.absent || 0);
-    const percentage = totalClasses > 0 ? Math.round((present / totalClasses) * 100) : 0;
+    const percentage =
+      totalClasses > 0 ? Math.round((present / totalClasses) * 100) : 0;
 
     res.json({
       percentage,
