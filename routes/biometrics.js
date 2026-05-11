@@ -18,14 +18,53 @@ const {
   isoBase64URL,
   isoUint8Array,
 } = require("@simplewebauthn/server/helpers");
-const { encrypt, decrypt, secureLog } = require("../utils/crypto");
+const { secureLog } = require("../utils/crypto");
 const {
   setAuthenticationChallenge,
   getAuthenticationChallenge,
   clearAuthenticationChallenge,
 } = require("../middleware/biometricAuth");
-const { extractEmbedding, isFaceNetAvailable } = require("../services/facenet");
-const { saveUserEmbedding, findBestMatch } = require("../services/faceMatcher");
+const {
+  registerFace: registerFaceWithAi,
+  recognizeFace: recognizeFaceWithAi,
+  verifyFace: verifyFaceWithAi,
+} = require("../services/aiFaceClient");
+
+function sendAiFaceServiceError(res, err, fallbackMessage) {
+  if (err?.response) {
+    const status = err.response.status || 500;
+    const aiMessage =
+      err.response.data?.message ||
+      err.response.data?.detail ||
+      err.response.data?.error ||
+      fallbackMessage;
+
+    return res.status(status).json({
+      success: false,
+      message: aiMessage,
+      error: err.response.data?.error || aiMessage,
+    });
+  }
+
+  if (
+    err?.code === "ECONNREFUSED" ||
+    err?.code === "ENOTFOUND" ||
+    err?.code === "ETIMEDOUT"
+  ) {
+    return res.status(503).json({
+      success: false,
+      message:
+        "AI face service is unavailable. Start the backend AI service or set AI_FACE_SERVICE_URL to the running service.",
+      error: err.message,
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: fallbackMessage,
+    error: err?.message,
+  });
+}
 
 // WebAuthn configuration - supports separate student/faculty domains
 // RP_ID must be explicitly configured for production; in development/tests we
@@ -633,11 +672,11 @@ router.post("/webauthn/auth/complete", async (req, res) => {
 // ============================================
 
 // @route   POST /api/biometrics/face/enroll
-// @desc    Enroll user's face by accepting one or more base64 images or a precomputed embedding
+// @desc    Enroll user's face with one or more captured images
 // @access  Public (during onboarding) or Private
 router.post("/face/enroll", async (req, res) => {
   try {
-    const { userId, images, embedding } = req.body;
+    const { userId, images, image } = req.body;
     const authUser = req.user;
 
     const targetUserId = userId || (authUser ? authUser.id : null);
@@ -648,135 +687,39 @@ router.post("/face/enroll", async (req, res) => {
       });
     }
 
-    let faceDescriptor = null;
+    const registrationResult = await registerFaceWithAi({
+      userId: targetUserId,
+      images: Array.isArray(images) ? images : [],
+      image: image || null,
+    });
 
-    // If images are provided, process them to extract FaceNet embeddings and average them
-    if (images && Array.isArray(images) && images.length > 0) {
-      try {
-        const descriptors = [];
-        for (const imageBase64 of images) {
-          const base64Data = imageBase64.replace(
-            /^data:image\/\w+;base64,/,
-            "",
-          );
-          const buf = Buffer.from(base64Data, "base64");
-          const descriptor = await extractEmbedding(buf);
-          if (descriptor) {
-            descriptors.push(descriptor);
-          }
-        }
-
-        if (descriptors.length === 0) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "No face detected in any of the provided images. Please ensure your face is clearly visible.",
-          });
-        }
-
-        if (descriptors.length > 1) {
-          const dim = descriptors[0].length;
-          const avg = new Array(dim).fill(0);
-          for (let i = 0; i < dim; i++) {
-            let sum = 0;
-            for (const desc of descriptors) {
-              sum += desc[i];
-            }
-            avg[i] = sum / descriptors.length;
-          }
-          faceDescriptor = avg;
-        } else {
-          faceDescriptor = descriptors[0];
-        }
-      } catch (faceError) {
-        secureLog("FaceNet extraction error", {
-          operationStatus: "error",
-          userId: targetUserId,
-        });
-        return res.status(400).json({
-          success: false,
-          message:
-            "Failed to process face images. Please try again with clearer images.",
-        });
-      }
-    } else if (embedding && Array.isArray(embedding) && embedding.length > 0) {
-      // Direct embedding provided (for advanced clients)
-      faceDescriptor = embedding;
-    } else {
+    if (!registrationResult?.success) {
       return res.status(400).json({
         success: false,
-        message: "Either images array or embedding array is required.",
+        message: registrationResult?.message || "Face enrollment failed.",
       });
     }
 
-    if (!Array.isArray(faceDescriptor) || faceDescriptor.length !== 512) {
-      return res.status(400).json({
-        success: false,
-        message: "Face embedding must be 512 dimensions.",
-      });
-    }
-
-    const encryptedEmbedding = encrypt(JSON.stringify(faceDescriptor));
-
-    // Check if user already has a face enrolled
-    const existingCheck = await pool.query(
-      "SELECT id FROM biometric_face WHERE user_id = $1 AND is_active = TRUE",
-      [targetUserId],
-    );
-
-    // Persist embedding in users table for pgvector-based recognition
-    await saveUserEmbedding(targetUserId, faceDescriptor);
-
-    if (existingCheck.rowCount > 0) {
-      // Update existing enrollment
-      await pool.query(
-        `UPDATE biometric_face 
-         SET encrypted_embedding = $1, enrolled_at = CURRENT_TIMESTAMP, is_active = TRUE
-         WHERE user_id = $2`,
-        [encryptedEmbedding, targetUserId],
-      );
-
-      return res.json({
-        success: true,
-        message: "Face enrollment updated successfully.",
-      });
-    } else {
-      // Create new enrollment
-      await pool.query(
-        `INSERT INTO biometric_face (user_id, encrypted_embedding, is_active)
-         VALUES ($1, $2, TRUE)`,
-        [targetUserId, encryptedEmbedding],
-      );
-
-      // Set face_enrolled flag in users table
-      await pool.query("UPDATE users SET face_enrolled = TRUE WHERE id = $1", [
-        targetUserId,
-      ]);
-
-      return res.status(201).json({
-        success: true,
-        message: "Face enrolled successfully.",
-      });
-    }
+    return res.status(201).json(registrationResult);
   } catch (err) {
     secureLog("Face enrollment error", {
       operationStatus: "error",
-      userId: targetUserId,
+      userId: req.body?.userId || req.user?.id,
     });
-    res.status(500).json({
-      success: false,
-      error: "Server error during face enrollment.",
-      message: "An error occurred. Please try again.",
-    });
+    return sendAiFaceServiceError(
+      res,
+      err,
+      "An error occurred during face enrollment. Please try again.",
+    );
   }
 });
 
 // @route   POST /api/biometrics/face/verify
-// @desc    Verify user's face against stored enrollment using FaceNet embeddings
+// @desc    Verify user's face against stored enrollment using the AI service
 // @access  Public (during onboarding) or Private
 router.post("/face/verify", async (req, res) => {
   try {
-    const { userId, embedding } = req.body;
+    const { userId, image } = req.body;
     const authUser = req.user;
 
     const targetUserId = userId || (authUser ? authUser.id : null);
@@ -784,46 +727,22 @@ router.post("/face/verify", async (req, res) => {
       return res.status(400).json({ message: "User ID is required." });
     }
 
-    if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
-      return res
-        .status(400)
-        .json({ message: "Face embedding array is required." });
-    }
-
-    if (embedding.length !== 512) {
-      return res.status(400).json({
-        message: "Face embedding must be 512 dimensions.",
-      });
-    }
-
-    // Use pgvector nearest-neighbor search and ensure best match is the target user
-    const bestMatch = await findBestMatch(embedding);
-
-    if (!bestMatch) {
-      return res.status(404).json({
-        message: "No face enrollment found. Please enroll your face first.",
-        enrolled: false,
-      });
-    }
-
-    const match =
-      bestMatch.match && parseInt(bestMatch.userId, 10) === targetUserId;
-    const similarity = 1 - bestMatch.distance;
-
-    res.json({
-      verified: match,
-      score: similarity,
-      threshold: 1 - bestMatch.threshold,
-      message: match
-        ? "Face verified successfully."
-        : "Face verification failed. Please try again with better lighting and a clear view of your face.",
+    const verification = await verifyFaceWithAi({
+      userId: targetUserId,
+      image,
     });
+
+    res.json(verification);
   } catch (err) {
     secureLog("Face verification error", {
       operationStatus: "error",
-      userId: targetUserId,
+      userId: req.body?.userId || req.user?.id,
     });
-    res.status(500).json({ error: "Server error during face verification." });
+    return sendAiFaceServiceError(
+      res,
+      err,
+      "Server error during face verification.",
+    );
   }
 });
 
@@ -832,7 +751,7 @@ router.post("/face/verify", async (req, res) => {
 // @access  Public (during login)
 router.post("/face/verify-at-login", async (req, res) => {
   try {
-    const { userId, embedding } = req.body;
+    const { userId, image } = req.body;
 
     if (!userId) {
       return res.status(400).json({
@@ -841,50 +760,27 @@ router.post("/face/verify-at-login", async (req, res) => {
       });
     }
 
-    if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Face embedding array is required.",
-      });
-    }
+    const verification = await verifyFaceWithAi({
+      userId,
+      image,
+    });
 
-    if (embedding.length !== 512) {
-      return res.status(400).json({
-        success: false,
-        message: "Face embedding must be 512 dimensions.",
-      });
-    }
-
-    const bestMatch = await findBestMatch(embedding);
-
-    if (!bestMatch) {
-      return res.status(404).json({
-        success: false,
-        message: "No face enrollment found. Please enroll your face first.",
-        enrolled: false,
-      });
-    }
-
-    const match = bestMatch.match && parseInt(bestMatch.userId, 10) === userId;
-    const similarity = 1 - bestMatch.distance;
-
-    if (!match) {
+    if (!verification.verified) {
       return res.status(401).json({
         success: false,
         verified: false,
-        score: similarity,
-        threshold: 1 - bestMatch.threshold,
-        message: "Face mismatch – identity could not be verified.",
+        score: verification.confidence,
+        threshold: verification.threshold,
+        message: verification.instruction || "Face mismatch – identity could not be verified.",
       });
     }
 
-    // Success - face matches
     res.json({
       success: true,
       verified: true,
-      score: similarity,
-      threshold: 1 - bestMatch.threshold,
-      message: "Face verified successfully.",
+      score: verification.confidence,
+      threshold: verification.threshold,
+      message: verification.instruction || "Face verified successfully.",
     });
   } catch (err) {
     secureLog("Face verification at login error", { operationStatus: "error" });
@@ -892,6 +788,24 @@ router.post("/face/verify-at-login", async (req, res) => {
       success: false,
       error: "Server error during face verification.",
     });
+  }
+});
+
+// @route   POST /api/biometrics/face/recognize
+// @desc    Recognize the most likely user from a face image
+// @access  Public
+router.post("/face/recognize", async (req, res) => {
+  try {
+    const { image } = req.body;
+    const result = await recognizeFaceWithAi({ image });
+    res.json(result);
+  } catch (err) {
+    secureLog("Face recognition error", { operationStatus: "error" });
+    return sendAiFaceServiceError(
+      res,
+      err,
+      "Server error during face recognition.",
+    );
   }
 });
 
@@ -983,16 +897,7 @@ router.get("/status", async (req, res) => {
 
     // Check face enrollment
     const faceCheck = await pool.query(
-      "SELECT id FROM biometric_face WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
-      [targetUserId],
-    );
-
-    const legacyFaceCheck = await pool.query(
-      `SELECT face_enrolled, embedding
-       FROM users
-       WHERE id = $1
-         AND (face_enrolled = TRUE OR embedding IS NOT NULL)
-       LIMIT 1`,
+      "SELECT id FROM users WHERE id = $1 AND (face_enrolled = TRUE OR embedding IS NOT NULL) LIMIT 1",
       [targetUserId],
     );
 
@@ -1004,7 +909,7 @@ router.get("/status", async (req, res) => {
 
     res.json({
       webauthn: webauthnCheck.rowCount > 0,
-      face: faceCheck.rowCount > 0 || legacyFaceCheck.rowCount > 0,
+      face: faceCheck.rowCount > 0,
       consent: consentCheck.rowCount > 0,
       consentMethod:
         consentCheck.rowCount > 0 ? consentCheck.rows[0].method : null,

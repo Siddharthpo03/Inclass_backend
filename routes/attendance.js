@@ -8,7 +8,7 @@ const logger = require("../utils/logger");
 const getLocation = require("../utils/geo"); // Utility to get location (needs fixing in geo.js)
 const sendMail = require("../utils/mailer"); // Utility to send mail
 const socketIO = require("../socket"); // Socket.io instance
-const { findBestMatch } = require("../services/faceMatcher");
+const { verifyFace: verifyFaceWithAi } = require("../services/aiFaceClient");
 
 // Optional: Use biometric middleware instead of manual verification
 // Example: router.post("/mark", auth(["student"]), biometricAuth({ requireAny: true }), async (req, res) => {
@@ -19,7 +19,7 @@ const { findBestMatch } = require("../services/faceMatcher");
 // @desc    Student submits code to mark attendance (with face verification)
 // @access  Private (Student only)
 router.post("/mark", auth(["student"]), async (req, res) => {
-  const { code, faceEmbedding } = req.body;
+  const { code, faceImage } = req.body;
   const student_id = req.user.id;
   const ip = req.ip; // Get client IP address
   let location_text = "Unknown"; // Placeholder
@@ -68,9 +68,9 @@ router.post("/mark", auth(["student"]), async (req, res) => {
       });
     }
 
-    // 2.6. ENFORCE FACE VERIFICATION - Check if FaceNet embedding is enrolled
+    // 2.6. ENFORCE FACE VERIFICATION - Check if the user has enrolled face data
     const faceCheck = await pool.query(
-      "SELECT embedding FROM users WHERE id = $1 AND embedding IS NOT NULL",
+      "SELECT id FROM users WHERE id = $1 AND (face_enrolled = TRUE OR embedding IS NOT NULL)",
       [student_id],
     );
 
@@ -85,49 +85,24 @@ router.post("/mark", auth(["student"]), async (req, res) => {
     }
 
     // 3. Face Verification (REQUIRED)
-    if (!faceEmbedding) {
+    if (!faceImage) {
       return res.status(400).json({
-        message:
-          "Face verification is required. Please provide face embedding.",
+        message: "Face verification is required. Please provide a face image.",
       });
     }
 
     try {
-      // Get stored face embedding (from new biometric_face table)
-      const faceEnrollment = await pool.query(
-        "SELECT encrypted_embedding FROM biometric_face WHERE user_id = $1 AND is_active = TRUE",
-        [student_id],
-      );
+      const verification = await verifyFaceWithAi({
+        userId: student_id,
+        image: faceImage,
+      });
 
-      if (faceEnrollment.rowCount === 0) {
-        return res.status(400).json({
-          message: "Face enrollment not found. Please enroll your face first.",
-        });
-      }
+      faceVerified = Boolean(verification.verified);
+      faceMatchScore = Number(verification.confidence || 0);
 
-      // Use pgvector nearest-neighbor search and ensure best match is the logged-in student
-      if (!Array.isArray(faceEmbedding) || faceEmbedding.length !== 512) {
-        return res.status(400).json({
-          message: "Face embedding must be a 512-dim array.",
-        });
-      }
-
-      const bestMatch = await findBestMatch(faceEmbedding);
-
-      if (!bestMatch) {
-        return res.status(400).json({
-          message: "No face enrollments found for verification.",
-        });
-      }
-
-      faceVerified =
-        bestMatch.match && parseInt(bestMatch.userId, 10) === student_id;
-      faceMatchScore = 1 - bestMatch.distance; // convert distance to similarity
-
-      // ENFORCE: Face verification must pass
       if (!faceVerified) {
         return res.status(403).json({
-          message:
+          message: verification.instruction ||
             "Face verification failed. Captured face does not match logged-in student.",
           score: faceMatchScore,
         });

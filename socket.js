@@ -6,9 +6,10 @@ const logger = require("./utils/logger");
 const Sentry = process.env.SENTRY_DSN ? require("@sentry/node") : null;
 
 const DEFAULT_ALLOWED_ORIGINS = [
+  process.env.FRONTEND_URL,
   "https://inclass.siddharthp.com",
   "http://localhost:5173",
-];
+].filter(Boolean);
 
 function resolveAllowedOrigins(options = {}) {
   if (Array.isArray(options.origin) && options.origin.length > 0) {

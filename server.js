@@ -5,6 +5,8 @@
 require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 
 const http = require("http");
+const path = require("path");
+const { spawn } = require("child_process");
 const app = require("./app");
 const socketInit = require("./socket");
 const logger = require("./utils/logger");
@@ -27,15 +29,93 @@ if (process.env.SENTRY_DSN) {
 }
 
 const PORT = process.env.PORT || 4000;
+const AI_FACE_SERVICE_URL =
+  process.env.AI_FACE_SERVICE_URL || "http://127.0.0.1:8000";
+const AI_FACE_AUTO_START = process.env.AI_FACE_AUTO_START !== "false";
+
+let aiFaceServiceProcess = null;
+
+function shouldAutoStartAiFaceService() {
+  if (!AI_FACE_AUTO_START) {
+    return false;
+  }
+
+  try {
+    const serviceUrl = new URL(AI_FACE_SERVICE_URL);
+    return ["127.0.0.1", "localhost"].includes(serviceUrl.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function startAiFaceService() {
+  if (!shouldAutoStartAiFaceService()) {
+    logger.info("AI face service auto-start skipped", {
+      serviceUrl: AI_FACE_SERVICE_URL,
+    });
+    return null;
+  }
+
+  const pythonCommand = process.env.AI_FACE_PYTHON_CMD || "python3";
+  const servicePath = path.join(__dirname, "ai-service");
+
+  logger.info("Starting AI face service", {
+    command: pythonCommand,
+    cwd: servicePath,
+    serviceUrl: AI_FACE_SERVICE_URL,
+  });
+
+  const child = spawn(
+    pythonCommand,
+    ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+    {
+      cwd: servicePath,
+      env: process.env,
+      shell: process.platform === "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    },
+  );
+
+  child.stdout.on("data", (chunk) => {
+    const output = String(chunk).trim();
+    if (output) {
+      logger.info("[AI Face Service] " + output);
+    }
+  });
+
+  child.stderr.on("data", (chunk) => {
+    const output = String(chunk).trim();
+    if (output) {
+      logger.warn("[AI Face Service] " + output);
+    }
+  });
+
+  child.on("exit", (code, signal) => {
+    aiFaceServiceProcess = null;
+    logger.warn("AI face service exited", { code, signal });
+  });
+
+  child.on("error", (error) => {
+    aiFaceServiceProcess = null;
+    logger.error("Failed to start AI face service", {
+      message: error.message,
+    });
+  });
+
+  aiFaceServiceProcess = child;
+  return child;
+}
 
 // Create HTTP server from Express app
 const server = http.createServer(app);
 
 // Initialize Socket.io with the HTTP server, reusing CORS origins from app
 const allowedOrigins = (app.locals && app.locals.allowedOrigins) || [
+  process.env.FRONTEND_URL,
   "https://inclass.siddharthp.com",
   "http://localhost:5173",
-];
+].filter(Boolean);
 
 const io = socketInit.init(server, {
   origin: allowedOrigins,
@@ -63,6 +143,8 @@ server.on("error", (err) => {
 });
 
 // Start HTTP listener
+startAiFaceService();
+
 server.listen(PORT, () => {
   logger.info("HTTP server listening", { port: PORT });
   logger.info("Socket.io initialized and ready for connections");
@@ -76,6 +158,9 @@ server.listen(PORT, () => {
 // Clean shutdown on Ctrl+C so the port is released immediately
 process.on("SIGINT", () => {
   logger.info("Received SIGINT, shutting down server...");
+  if (aiFaceServiceProcess) {
+    aiFaceServiceProcess.kill();
+  }
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 3000);
 });

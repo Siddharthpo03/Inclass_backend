@@ -13,11 +13,22 @@ RUN npm ci
 # Stage 2: Production (Debian-based for better binary compatibility with ONNX Runtime)
 FROM node:22-bookworm-slim
 
-# Install minimal system dependencies for TensorFlow.js
-# (jimp is pure JavaScript, no graphics libraries needed)
+# Install runtime dependencies for the Node app plus the Python AI face service.
+# The Python stack needs build tools because insightface installs native extensions.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
     python3 \
+    python3-pip \
+    python3-venv \
+    build-essential \
+    gcc \
+    g++ \
+    python3-dev \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -28,7 +39,11 @@ COPY --from=builder /app/node_modules ./node_modules
 # Copy application code
 COPY . ./
 
-# TensorFlow.js face-api models will auto-download on first run
+# Install the Python AI face service dependencies used by backend/server.js
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir -r ai-service/requirements.txt
+
+# InsightFace models will auto-download on first run when the AI service starts.
 
 # Create non-root user for security
 RUN groupadd -g 1001 nodejs && \

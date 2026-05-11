@@ -140,10 +140,15 @@ app.use(
 
 // --- SEC-003: Strict CORS Configuration ---
 // Allow only production frontend and local development frontend.
-const allowedOrigins = [
-  "https://inclass.siddharthp.com",
-  "http://localhost:5173",
-];
+const allowedOrigins = Array.from(
+  new Set(
+    [
+      process.env.FRONTEND_URL,
+      "https://inclass.siddharthp.com",
+      "http://localhost:5173",
+    ].filter(Boolean),
+  ),
+);
 
 // Expose allowedOrigins for Socket.io setup in server.js
 app.locals.allowedOrigins = allowedOrigins;
@@ -171,7 +176,7 @@ app.options(/.*/, cors(corsOptions));
 
 // Body parsing middleware - but multer will handle multipart/form-data
 app.use(express.json());
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Serve uploaded files statically
 const path = require("path");
@@ -222,7 +227,6 @@ const authRoutes = require("./routes/auth");
 const attendanceRoutes = require("./routes/attendance");
 const studentRoutes = require("./routes/student");
 const facultyRoutes = require("./routes/faculty");
-const faceRecognitionRoutes = require("./routes/faceRecognition");
 const biometricsRoutes = require("./routes/biometrics");
 const reportsRoutes = require("./routes/reports");
 const registrationsRoutes = require("./routes/registrations");
@@ -237,7 +241,6 @@ app.use("/api/faculty", facultyRoutes);
 // Attendance: 30 req/min per IP (stricter than global)
 app.use("/api/attendance", attendanceLimiter, attendanceRoutes);
 app.use("/api/reports", reportsRoutes);
-app.use("/api/face", faceRecognitionRoutes);
 app.use("/api/biometrics", biometricsRoutes);
 
 // Secret admin routes (no backend rewrite, just route)
@@ -249,7 +252,7 @@ app.use("/inclass/admin", adminRoutes);
 // Basic test route
 app.get("/", (req, res) =>
   res.send(
-    "InClass Backend Running (Endpoints: /api/auth, /api/faculty, /api/attendance, /api/reports, /api/face, /api/biometrics)",
+    "InClass Backend Running (Endpoints: /api/auth, /api/faculty, /api/attendance, /api/reports, /api/biometrics)",
   ),
 );
 

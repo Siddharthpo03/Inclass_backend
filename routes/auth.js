@@ -24,6 +24,7 @@ const {
   otpVerifyLimiter,
 } = require("../middleware/rateLimiter");
 const { sendOtpEmail } = require("../utils/email");
+const { verifyFace: verifyFaceWithAi } = require("../services/aiFaceClient");
 
 // Utility to generate JWT (requires JWT_SECRET in .env)
 // Token expires in 24 hours for security (production best practice)
@@ -32,38 +33,6 @@ const generateToken = (id, role) => {
     expiresIn: "24h", // Production security standard: 24-hour token lifetime
   });
 };
-
-function normalizeEmbedding(value) {
-  if (Array.isArray(value)) {
-    return value.map((entry) => Number(entry));
-  }
-
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) {
-      return parsed.map((entry) => Number(entry));
-    }
-  } catch {
-    // Fall through to brace-separated parsing.
-  }
-
-  const normalized = trimmed.replace(/^[\[{]/, "").replace(/[\]}]$/, "");
-  const parts = normalized
-    .split(",")
-    .map((entry) => Number(entry.trim()))
-    .filter((entry) => Number.isFinite(entry));
-
-  return parts.length > 0 ? parts : null;
-}
 
 const allowedEmailDomains = (process.env.ALLOWED_EMAIL_DOMAINS || "")
   .split(",")
@@ -603,134 +572,40 @@ router.post(
     // Face verification for students and faculty (only if face is enrolled)
     if (user.role === "student" || user.role === "faculty") {
       const faceCheck = await pool.query(
-        `SELECT
-           bf.id AS biometric_face_id,
-           bf.encrypted_embedding,
-           u.embedding AS legacy_embedding,
-           u.face_enrolled
-         FROM users u
-         LEFT JOIN biometric_face bf
-           ON bf.user_id = u.id AND bf.is_active = TRUE
-         WHERE u.id = $1
+        `SELECT id, embedding, face_enrolled
+         FROM users
+         WHERE id = $1
          LIMIT 1`,
         [user.id],
       );
 
       const faceRecord = faceCheck.rows[0] || null;
-      const hasBiometricFace = Boolean(faceRecord?.biometric_face_id);
-      const hasLegacyFace = Boolean(
-        faceRecord?.legacy_embedding || faceRecord?.face_enrolled,
-      );
-      const hasFace = hasBiometricFace || hasLegacyFace;
-
-      console.log(`[Login] ========================================`);
-      console.log(
-        `[Login] User ${user.id} (${user.role}): Face enrolled = ${hasFace}`,
-      );
-      console.log(
-        `[Login] Face check query result: ${faceCheck.rowCount} rows`,
-      );
+      const hasFace = Boolean(faceRecord?.face_enrolled || faceRecord?.embedding);
 
       if (hasFace) {
-        console.log(`[Login] Face record found for user ${user.id}`);
-      } else {
-        console.log(
-          `[Login] No face record found for user ${user.id} - skipping face verification`,
-        );
-        console.log(`[Login] ========================================`);
-      }
+        const faceImage = req.body.faceImage;
 
-      // If face is enrolled, require face verification
-      if (hasFace) {
-        const { embedding } = req.body;
-
-        console.log(`[Login] Face enrolled, checking embedding...`);
-        console.log(
-          `[Login] Embedding provided = ${
-            !!embedding && Array.isArray(embedding) && embedding.length > 0
-          }`,
-        );
-        console.log(
-          `[Login] Embedding type: ${typeof embedding}, isArray: ${Array.isArray(
-            embedding,
-          )}, length: ${embedding?.length || 0}`,
-        );
-
-        if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
-          console.log(
-            `[Login] ❌ Face verification required for user ${user.id} - returning 400 error`,
-          );
-          // Return specific error that frontend can catch
-          const errorResponse = {
+        if (!faceImage) {
+          return res.status(400).json({
             success: false,
             error: {
               message: "Face verification required. Please capture your face.",
               code: "FACE_VERIFICATION_REQUIRED",
             },
             requiresFaceVerification: true,
-          };
-          console.log(
-            `[Login] Sending error response:`,
-            JSON.stringify(errorResponse, null, 2),
-          );
-          console.log(`[Login] ========================================`);
-          // Use res.status().json() and ensure it's returned
-          res.status(400).json(errorResponse);
-          return; // Explicitly return to prevent further execution
+          });
         }
 
-        // Call face verification endpoint logic
-        const { decrypt } = require("../utils/crypto");
-        let storedEmbedding = null;
+        const verification = await verifyFaceWithAi({
+          userId: user.id,
+          image: faceImage,
+        });
 
-        if (hasBiometricFace && faceRecord?.encrypted_embedding) {
-          storedEmbedding = JSON.parse(decrypt(faceRecord.encrypted_embedding));
-        } else if (hasLegacyFace && faceRecord?.legacy_embedding) {
-          storedEmbedding = normalizeEmbedding(faceRecord.legacy_embedding);
-        }
-
-        if (storedEmbedding) {
-          // Decrypt or normalize stored embedding depending on enrollment source
-          const normalizedInputEmbedding = normalizeEmbedding(embedding);
-
-          if (!normalizedInputEmbedding) {
-            throw new AuthenticationError("Invalid face embedding provided.");
-          }
-
-          // Calculate cosine similarity
-          function cosineSimilarity(vecA, vecB) {
-            if (vecA.length !== vecB.length) {
-              return 0;
-            }
-            let dotProduct = 0;
-            let normA = 0;
-            let normB = 0;
-            for (let i = 0; i < vecA.length; i++) {
-              dotProduct += vecA[i] * vecB[i];
-              normA += vecA[i] * vecA[i];
-              normB += vecB[i] * vecB[i];
-            }
-            const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-            if (denominator === 0) {
-              return 0;
-            }
-            return dotProduct / denominator;
-          }
-
-          const similarity = cosineSimilarity(
-            normalizedInputEmbedding,
-            storedEmbedding,
-          );
-          const threshold = parseFloat(
-            process.env.FACE_SIMILARITY_THRESHOLD || "0.62",
-          );
-          const match = similarity >= threshold;
-
-          if (!match) {
-            throw new AuthenticationError(
+        if (!verification.verified) {
+          throw new AuthenticationError(
+            verification.instruction ||
               "Face mismatch – identity could not be verified.",
-            );
-          }
+          );
         }
       }
     }

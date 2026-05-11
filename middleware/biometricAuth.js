@@ -2,7 +2,35 @@
 // Biometric authentication middleware for attendance marking (face only)
 
 const { pool } = require("../config/database");
-const { findBestMatch } = require("../services/faceMatcher");
+
+const FACE_SIMILARITY_THRESHOLD = Number(
+  process.env.FACE_SIMILARITY_THRESHOLD || 0.48,
+);
+
+function cosineSimilarity(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+    return 0;
+  }
+
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = Number(left[index]) || 0;
+    const rightValue = Number(right[index]) || 0;
+    dot += leftValue * rightValue;
+    leftNorm += leftValue * leftValue;
+    rightNorm += rightValue * rightValue;
+  }
+
+  const denominator = Math.sqrt(leftNorm) * Math.sqrt(rightNorm);
+  if (!denominator) {
+    return 0;
+  }
+
+  return dot / denominator;
+}
 
 // Store authentication challenges (in production, use Redis)
 const authenticationChallenges = new Map();
@@ -37,7 +65,7 @@ function biometricAuth(options = {}) {
       try {
         if (!faceEmbedding && requireFace) {
           return res.status(400).json({
-          message: "Face embedding is required for attendance marking.",
+            message: "Face embedding is required for attendance marking.",
             code: "FACE_REQUIRED",
           });
         }
@@ -48,14 +76,19 @@ function biometricAuth(options = {}) {
           });
         }
 
-        const bestMatch = await findBestMatch(faceEmbedding);
+        const userResult = await pool.query(
+          "SELECT embedding FROM users WHERE id = $1 AND embedding IS NOT NULL LIMIT 1",
+          [userId],
+        );
 
-        if (!bestMatch) {
+        if (userResult.rowCount === 0) {
           biometricResults.faceError = "No enrolled faces available for matching";
         } else {
-          biometricResults.faceVerified =
-            bestMatch.match && bestMatch.userId === userId;
-          biometricResults.faceMatchScore = 1 - bestMatch.distance; // higher is better
+          const storedEmbedding = userResult.rows[0].embedding;
+          const similarity = cosineSimilarity(faceEmbedding, storedEmbedding);
+
+          biometricResults.faceVerified = similarity >= FACE_SIMILARITY_THRESHOLD;
+          biometricResults.faceMatchScore = similarity;
 
           if (requireFace && !biometricResults.faceVerified) {
             return res.status(403).json({
