@@ -175,7 +175,7 @@ app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 
 // Body parsing middleware - but multer will handle multipart/form-data
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Serve uploaded files statically
