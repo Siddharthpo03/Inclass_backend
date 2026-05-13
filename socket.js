@@ -255,7 +255,7 @@ module.exports = {
         const now = Date.now();
         disconnectTimestamps.push(now);
         disconnectTimestamps = disconnectTimestamps.filter(
-          (ts) => now - ts <= 60 * 1000
+          (ts) => now - ts <= 60 * 1000,
         );
 
         logger.info("Socket disconnected", {

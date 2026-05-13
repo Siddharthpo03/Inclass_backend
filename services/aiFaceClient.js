@@ -48,9 +48,7 @@ const toBase64Payload = (image) => {
 };
 
 const normalizeImages = (files = []) =>
-  files
-    .map(toBase64Payload)
-    .filter(Boolean);
+  files.map(toBase64Payload).filter(Boolean);
 
 async function registerFace({ userId, images = [], image = null }) {
   const payload = {

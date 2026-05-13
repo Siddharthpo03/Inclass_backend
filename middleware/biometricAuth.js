@@ -8,7 +8,11 @@ const FACE_SIMILARITY_THRESHOLD = Number(
 );
 
 function cosineSimilarity(left, right) {
-  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+  if (
+    !Array.isArray(left) ||
+    !Array.isArray(right) ||
+    left.length !== right.length
+  ) {
     return 0;
   }
 
@@ -44,11 +48,7 @@ const authenticationChallenges = new Map();
  * @returns {Function} Express middleware function
  */
 function biometricAuth(options = {}) {
-  const {
-    requireFace = false,
-    requireAny = false,
-    allowNone = true,
-  } = options;
+  const { requireFace = false, requireAny = false, allowNone = true } = options;
 
   return async (req, res, next) => {
     const userId = req.user.id;
@@ -82,12 +82,14 @@ function biometricAuth(options = {}) {
         );
 
         if (userResult.rowCount === 0) {
-          biometricResults.faceError = "No enrolled faces available for matching";
+          biometricResults.faceError =
+            "No enrolled faces available for matching";
         } else {
           const storedEmbedding = userResult.rows[0].embedding;
           const similarity = cosineSimilarity(faceEmbedding, storedEmbedding);
 
-          biometricResults.faceVerified = similarity >= FACE_SIMILARITY_THRESHOLD;
+          biometricResults.faceVerified =
+            similarity >= FACE_SIMILARITY_THRESHOLD;
           biometricResults.faceMatchScore = similarity;
 
           if (requireFace && !biometricResults.faceVerified) {

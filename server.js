@@ -111,11 +111,13 @@ function startAiFaceService() {
 const server = http.createServer(app);
 
 // Initialize Socket.io with the HTTP server, reusing CORS origins from app
-const allowedOrigins = (app.locals && app.locals.allowedOrigins) || [
-  process.env.FRONTEND_URL,
-  "https://inclass.siddharthp.com",
-  "http://localhost:5173",
-].filter(Boolean);
+const allowedOrigins =
+  (app.locals && app.locals.allowedOrigins) ||
+  [
+    process.env.FRONTEND_URL,
+    "https://inclass.siddharthp.com",
+    "http://localhost:5173",
+  ].filter(Boolean);
 
 const io = socketInit.init(server, {
   origin: allowedOrigins,

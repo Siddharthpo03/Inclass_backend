@@ -102,7 +102,8 @@ router.post("/mark", auth(["student"]), async (req, res) => {
 
       if (!faceVerified) {
         return res.status(403).json({
-          message: verification.instruction ||
+          message:
+            verification.instruction ||
             "Face verification failed. Captured face does not match logged-in student.",
           score: faceMatchScore,
         });

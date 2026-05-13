@@ -580,7 +580,9 @@ router.post(
       );
 
       const faceRecord = faceCheck.rows[0] || null;
-      const hasFace = Boolean(faceRecord?.face_enrolled || faceRecord?.embedding);
+      const hasFace = Boolean(
+        faceRecord?.face_enrolled || faceRecord?.embedding,
+      );
 
       if (hasFace) {
         const faceImage = req.body.faceImage;
@@ -735,13 +737,13 @@ router.post(
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await pool.query(
-      `INSERT INTO otps (phone, email, otp_hash, expires_at)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (phone)
-       DO UPDATE SET email = EXCLUDED.email,
-                     otp_hash = EXCLUDED.otp_hash,
-                     expires_at = EXCLUDED.expires_at`,
-      [phoneKey, email, otpHash, expiresAt],
+      `INSERT INTO otps (user_id, email, otp_hash, expires_at)
+ VALUES ($1, $2, $3, $4)
+ ON CONFLICT (user_id)
+ DO UPDATE SET email = EXCLUDED.email,
+               otp_hash = EXCLUDED.otp_hash,
+               expires_at = EXCLUDED.expires_at`,
+      [targetUserId, email, otpHash, expiresAt],
     );
 
     const { success, error, messageId } = await sendOtpEmail({
@@ -790,8 +792,8 @@ router.post(
 
     const recipient = await loadOtpRecipientByUserId(targetUserId);
     const otpResult = await pool.query(
-      "SELECT phone, email, otp_hash, expires_at FROM otps WHERE phone = $1 AND email = $2 LIMIT 1",
-      [recipient.phoneKey, recipient.email],
+      "SELECT user_id, email, otp_hash, expires_at FROM otps WHERE user_id = $1 AND email = $2 LIMIT 1",
+      [targetUserId, recipient.email],
     );
 
     if (otpResult.rowCount === 0) {
@@ -820,8 +822,8 @@ router.post(
     }
 
     // Single-use OTP: delete immediately after successful verification
-    await pool.query("DELETE FROM otps WHERE phone = $1 AND email = $2", [
-      recipient.phoneKey,
+    await pool.query("DELETE FROM otps WHERE user_id = $1 AND email = $2", [
+      targetUserId,
       recipient.email,
     ]);
 

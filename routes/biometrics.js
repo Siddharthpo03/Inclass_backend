@@ -771,7 +771,9 @@ router.post("/face/verify-at-login", async (req, res) => {
         verified: false,
         score: verification.confidence,
         threshold: verification.threshold,
-        message: verification.instruction || "Face mismatch – identity could not be verified.",
+        message:
+          verification.instruction ||
+          "Face mismatch – identity could not be verified.",
       });
     }
 
