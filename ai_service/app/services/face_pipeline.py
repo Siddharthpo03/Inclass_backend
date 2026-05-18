@@ -110,7 +110,7 @@ def analyze_face(image: np.ndarray) -> FaceCandidate:
 
     too_close = area_ratio > settings.max_face_size_ratio
     too_far = area_ratio < settings.min_face_size_ratio
-    center_ok = offset_x <= 0.12 and offset_y <= 0.12
+    center_ok = offset_x <= 0.35 and offset_y <= 0.35
     blurry = blur < settings.min_blur
     low_light = brightness < settings.min_brightness
 
