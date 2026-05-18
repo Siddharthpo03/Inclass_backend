@@ -11,7 +11,7 @@ const keyGen = (req) =>
 // max 5 requests per 15 minutes per IP
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
+  max: 50,
   message: {
     success: false,
     error: {
