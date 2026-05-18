@@ -834,4 +834,11 @@ router.post(
   }),
 );
 
+// @route   POST /api/auth/logout
+// @desc    Logout user (JWT is stateless - just returns success confirmation)
+// @access  Public
+router.post("/logout", (req, res) => {
+  res.json({ success: true, message: "Logged out successfully." });
+});
+
 module.exports = router;
