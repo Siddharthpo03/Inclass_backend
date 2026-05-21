@@ -48,9 +48,9 @@ router.post("/courses", auth(["faculty"]), async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO courses (faculty_id, course_code, course_name, description, credits, semester, academic_year, department_id, college_id)
+      `INSERT INTO courses (faculty_id, course_code, title, description, credits, semester, academic_year, department_id, college_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, course_code, course_name, description, credits, semester, academic_year`,
+       RETURNING id, course_code, title, description, credits, semester, academic_year`,
       [faculty_id, courseCode, courseName, description || null, credits || null, semester || null, academicYear || null, departmentId || null, collegeId || null]
     );
 
@@ -138,7 +138,7 @@ router.get("/:facultyId/courses", auth(["faculty", "student"]), async (req, res)
 
     // Also try the courses table (new system)
     const coursesResult = await pool.query(
-      `SELECT id, course_code, course_name, description, credits, semester, academic_year, department_id, college_id, is_active, created_at
+      `SELECT id, course_code, title, description, credits, semester, academic_year, department_id, college_id, is_active, created_at
        FROM courses 
        WHERE faculty_id = $1 AND (is_active = TRUE OR is_active IS NULL)
        ORDER BY created_at DESC`,
@@ -168,7 +168,7 @@ router.get("/:facultyId/courses", auth(["faculty", "student"]), async (req, res)
       ...coursesResult.rows.map((row) => ({
         id: row.id,
         courseCode: row.course_code,
-        courseName: row.course_name,
+        courseName: row.title,
         description: row.description,
         credits: row.credits,
         semester: row.semester,
@@ -918,10 +918,11 @@ router.post("/registrations/:registrationId/approve", auth(["faculty"]), async (
 
     // Verify registration belongs to faculty
     const regCheck = await pool.query(
-      `SELECT sr.*, u.name as student_name 
-       FROM student_registrations sr
-       JOIN users u ON sr.student_id = u.id
-       WHERE sr.id = $1 AND sr.faculty_id = $2`,
+      `SELECT r.*, u.name as student_name, c.faculty_id
+       FROM registrations r
+       JOIN courses c ON r.course_id = c.id
+       JOIN users u ON r.student_id = u.id
+       WHERE r.id = $1 AND c.faculty_id = $2`,
       [registrationId, facultyId]
     );
 
@@ -943,8 +944,8 @@ router.post("/registrations/:registrationId/approve", auth(["faculty"]), async (
 
     // Update status to approved
     await pool.query(
-      `UPDATE student_registrations 
-       SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP
+      `UPDATE registrations 
+       SET status = 'approved', updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
       [registrationId]
     );
@@ -994,10 +995,11 @@ router.post("/registrations/:registrationId/reject", auth(["faculty"]), async (r
 
     // Verify registration belongs to faculty
     const regCheck = await pool.query(
-      `SELECT sr.*, u.name as student_name 
-       FROM student_registrations sr
-       JOIN users u ON sr.student_id = u.id
-       WHERE sr.id = $1 AND sr.faculty_id = $2`,
+      `SELECT r.*, u.name as student_name, c.faculty_id
+       FROM registrations r
+       JOIN courses c ON r.course_id = c.id
+       JOIN users u ON r.student_id = u.id
+       WHERE r.id = $1 AND c.faculty_id = $2`,
       [registrationId, facultyId]
     );
 
@@ -1019,8 +1021,8 @@ router.post("/registrations/:registrationId/reject", auth(["faculty"]), async (r
 
     // Update status to rejected
     await pool.query(
-      `UPDATE student_registrations 
-       SET status = 'rejected', rejection_reason = $1, reviewed_at = CURRENT_TIMESTAMP
+      `UPDATE registrations 
+       SET status = 'rejected', rejection_reason = $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2`,
       [reason.trim(), registrationId]
     );

@@ -8,21 +8,8 @@ const requiredTables = [
   "users",
   "colleges",
   "departments",
-  "classes",
-  "sessions",
-  "enrollments",
-  "face_encodings",
-  "fingerprint_data",
-  "webauthn_credentials",
-  "biometric_face",
-  "biometric_consent",
-  "attendance",
-  "expired_code_reports",
-  "pending_students",
-  "otps",
   "courses",
-  "student_registrations",
-  "fingerprint_templates",
+  "registrations",
 ];
 
 const requiredColumns = {

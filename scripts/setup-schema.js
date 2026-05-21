@@ -104,16 +104,8 @@ async function setupSchema() {
       "users",
       "colleges",
       "departments",
-      "classes",
-      "sessions",
-      "enrollments",
-      "attendance",
-      "webauthn_credentials",
-      "biometric_face",
-      "biometric_consent",
-      "otps",
       "courses",
-      "student_registrations",
+      "registrations",
     ];
 
     console.log("\n📊 Verifying tables...");
