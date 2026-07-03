@@ -48,16 +48,21 @@ router.post("/courses", auth(["faculty"]), async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO courses (faculty_id, course_code, title, description, credits, semester, academic_year, department_id, college_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, course_code, title, description, credits, semester, academic_year`,
-      [faculty_id, courseCode, courseName, description || null, credits || null, semester || null, academicYear || null, departmentId || null, collegeId || null]
+      `INSERT INTO courses (faculty_id, code, title, description, credits, department_id, college_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, code AS course_code, title, description, credits, department_id, college_id`,
+      [faculty_id, courseCode, courseName, description || null, credits || null, departmentId || null, collegeId || null]
     );
 
     res.status(201).json({
       success: true,
       message: "Course created successfully",
-      course: result.rows[0],
+      course: {
+        ...result.rows[0],
+        total_classes: 0,
+        student_count: 0,
+        has_active_session: false,
+      },
     });
   } catch (err) {
     if (err.code === "23505") {
@@ -83,15 +88,20 @@ router.post("/register-course", auth(["faculty"]), async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO classes (faculty_id, course_code, title, total_classes)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, course_code, title`,
-      [faculty_id, course_code, title, total_classes]
+      `INSERT INTO courses (faculty_id, code, title)
+       VALUES ($1, $2, $3)
+       RETURNING id, code AS course_code, title`,
+      [faculty_id, course_code, title]
     );
 
     res.status(201).json({
       message: "Course registered successfully",
-      course: result.rows[0],
+      course: {
+        ...result.rows[0],
+        total_classes: parseInt(total_classes, 10) || 0,
+        student_count: 0,
+        has_active_session: false,
+      },
     });
   } catch (err) {
     if (err.code === "23505") {
@@ -205,18 +215,30 @@ router.get("/my-courses", auth(["faculty"]), async (req, res) => {
   const faculty_id = req.user.id;
   try {
     const result = await pool.query(
-      `SELECT c.id, c.course_code, c.title, c.total_classes,
-              COUNT(DISTINCT e.student_id) as student_count,
-              EXISTS(
-                SELECT 1 FROM sessions s 
-                WHERE s.class_id = c.id 
-                AND s.is_active = TRUE 
-                AND s.expires_at > NOW()
-              ) as has_active_session
-       FROM classes c
-       LEFT JOIN enrollments e ON e.class_id = c.id
+      `SELECT
+         c.id,
+         c.code AS course_code,
+         c.title,
+         COALESCE((
+           SELECT COUNT(DISTINCT s.id)
+           FROM sessions s
+           WHERE s.course_id = c.id
+         ), 0) AS total_classes,
+         COALESCE((
+           SELECT COUNT(DISTINCT r.student_id)
+           FROM registrations r
+           WHERE r.course_id = c.id AND r.status = 'approved'
+         ), 0) AS student_count,
+         EXISTS(
+           SELECT 1
+           FROM sessions s
+           WHERE s.course_id = c.id
+             AND s.is_active = TRUE
+             AND (s.code_expires_at IS NULL OR s.code_expires_at > NOW())
+         ) AS has_active_session
+       FROM courses c
        WHERE c.faculty_id = $1
-       GROUP BY c.id, c.course_code, c.title, c.total_classes
+         AND (c.is_active = TRUE OR c.is_active IS NULL)
        ORDER BY c.title`,
       [faculty_id]
     );
