@@ -136,71 +136,58 @@ router.get("/:facultyId/courses", auth(["faculty", "student"]), async (req, res)
       return res.status(400).json({ message: "Invalid faculty ID" });
     }
 
-    // Query both tables: classes (legacy) and courses (new)
-    // First try the classes table (what faculty dashboard uses)
-    const classesResult = await pool.query(
-      `SELECT id, course_code, title, total_classes, created_at
-       FROM classes 
-       WHERE faculty_id = $1
-       ORDER BY created_at DESC`,
+    const result = await pool.query(
+      `SELECT
+         c.id,
+         c.code AS course_code,
+         c.title,
+         c.description,
+         c.credits,
+         c.department_id,
+         c.college_id,
+         c.is_active,
+         c.created_at,
+         COALESCE((
+           SELECT COUNT(DISTINCT s.id)
+           FROM sessions s
+           WHERE s.course_id = c.id
+         ), 0) AS total_classes,
+         COALESCE((
+           SELECT COUNT(DISTINCT r.student_id)
+           FROM registrations r
+           WHERE r.course_id = c.id AND r.status = 'approved'
+         ), 0) AS student_count,
+         EXISTS(
+           SELECT 1
+           FROM sessions s
+           WHERE s.course_id = c.id
+             AND s.is_active = TRUE
+             AND (s.code_expires_at IS NULL OR s.code_expires_at > NOW())
+         ) AS has_active_session
+       FROM courses c
+       WHERE c.faculty_id = $1
+         AND (c.is_active = TRUE OR c.is_active IS NULL)
+       ORDER BY c.created_at DESC`,
       [facultyIdInt]
     );
 
-    // Also try the courses table (new system)
-    const coursesResult = await pool.query(
-      `SELECT id, course_code, title, description, credits, semester, academic_year, department_id, college_id, is_active, created_at
-       FROM courses 
-       WHERE faculty_id = $1 AND (is_active = TRUE OR is_active IS NULL)
-       ORDER BY created_at DESC`,
-      [facultyIdInt]
-    );
-
-    console.log(`✅ Found ${classesResult.rowCount} courses from classes table and ${coursesResult.rowCount} from courses table for faculty ${facultyId}`);
-
-    // Combine results from both tables
-    const allCourses = [
-      // Map classes table results
-      ...classesResult.rows.map((row) => ({
-        id: row.id,
-        courseCode: row.course_code,
-        courseName: row.title, // classes table uses 'title' instead of 'course_name'
-        description: null,
-        credits: null,
-        semester: null,
-        academicYear: null,
-        departmentId: null,
-        collegeId: null,
-        isActive: true,
-        createdAt: row.created_at,
-        totalClasses: row.total_classes,
-      })),
-      // Map courses table results
-      ...coursesResult.rows.map((row) => ({
+    res.json({
+      courses: result.rows.map((row) => ({
         id: row.id,
         courseCode: row.course_code,
         courseName: row.title,
         description: row.description,
         credits: row.credits,
-        semester: row.semester,
-        academicYear: row.academic_year,
+        semester: null,
+        academicYear: null,
         departmentId: row.department_id,
         collegeId: row.college_id,
         isActive: row.is_active,
         createdAt: row.created_at,
+        totalClasses: parseInt(row.total_classes, 10) || 0,
+        studentCount: parseInt(row.student_count, 10) || 0,
+        hasActiveSession: row.has_active_session || false,
       })),
-    ];
-
-    // Remove duplicates based on course_code (in case same course exists in both tables)
-    const uniqueCourses = allCourses.reduce((acc, course) => {
-      const existing = acc.find((c) => c.courseCode === course.courseCode);
-      if (!existing) {
-        acc.push(course);
-      }
-      return acc;
-    }, []);
-
-    res.json({
-      courses: uniqueCourses,
     });
   } catch (err) {
     console.error("❌ Error fetching courses:", err);
@@ -266,9 +253,23 @@ router.get("/courses/:courseId", auth(["faculty"]), async (req, res) => {
   
   try {
     const result = await pool.query(
-      `SELECT id, course_code, title, total_classes, created_at 
-       FROM classes 
-       WHERE id = $1 AND faculty_id = $2`,
+      `SELECT
+         c.id,
+         c.code AS course_code,
+         c.title,
+         c.created_at,
+         COALESCE((
+           SELECT COUNT(DISTINCT s.id)
+           FROM sessions s
+           WHERE s.course_id = c.id
+         ), 0) AS total_classes,
+         COALESCE((
+           SELECT COUNT(DISTINCT r.student_id)
+           FROM registrations r
+           WHERE r.course_id = c.id AND r.status = 'approved'
+         ), 0) AS student_count
+       FROM courses c
+       WHERE c.id = $1 AND c.faculty_id = $2`,
       [courseId, faculty_id]
     );
     
@@ -278,18 +279,12 @@ router.get("/courses/:courseId", auth(["faculty"]), async (req, res) => {
     
     const course = result.rows[0];
     
-    // Get student count
-    const studentCountResult = await pool.query(
-      "SELECT COUNT(*) as count FROM enrollments WHERE class_id = $1",
-      [courseId]
-    );
-    
     res.json({
       id: course.id,
       course_code: course.course_code,
       title: course.title,
-      total_classes: course.total_classes,
-      student_count: parseInt(studentCountResult.rows[0].count) || 0,
+      total_classes: parseInt(course.total_classes, 10) || 0,
+      student_count: parseInt(course.student_count, 10) || 0,
       created_at: course.created_at,
     });
   } catch (err) {
