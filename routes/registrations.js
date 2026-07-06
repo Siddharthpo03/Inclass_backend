@@ -28,24 +28,13 @@ router.post(
       throw new ValidationError("Course ID is required.");
     }
 
-    // Check if course exists in either courses or classes table
     // SECURE: Parameterized query prevents SQL injection
-    let courseResult = await pool.query(
-      `SELECT id, faculty_id, course_code, course_name 
-       FROM courses 
+    const courseResult = await pool.query(
+      `SELECT id, faculty_id, code AS course_code, title AS course_name
+       FROM courses
        WHERE id = $1 AND (is_active = TRUE OR is_active IS NULL)`,
       [courseId]
     );
-
-    // If not found, check classes table (legacy system)
-    if (courseResult.rowCount === 0) {
-      courseResult = await pool.query(
-        `SELECT id, faculty_id, course_code, title as course_name 
-         FROM classes 
-         WHERE id = $1`,
-        [courseId]
-      );
-    }
 
     if (courseResult.rowCount === 0) {
       throw new NotFoundError("Course not found or inactive.");
@@ -90,7 +79,7 @@ router.post(
           studentId: studentId,
           studentName: req.user.name || "Student",
           courseId: courseId,
-          courseName: course.course_name || course.courseCode,
+          courseName: course.course_name || course.course_code,
           requestedAt: result.rows[0].requested_at,
         });
       }
@@ -137,8 +126,8 @@ router.get(
         r.registered_at as requested_at,
         r.updated_at as reviewed_at,
         c.id as course_id,
-        c.course_code,
-        c.course_name,
+        c.code AS course_code,
+        c.title AS course_name,
         c.description,
         c.credits,
         c.semester,
@@ -193,11 +182,10 @@ router.get(
 
     // First, check all registrations for this faculty (for debugging)
     const allRegs = await pool.query(
-      `SELECT r.id, r.status, COALESCE(c.faculty_id, cls.faculty_id) as faculty_id, r.course_id
+      `SELECT r.id, r.status, c.faculty_id, r.course_id
        FROM registrations r
-       LEFT JOIN courses c ON r.course_id = c.id
-       LEFT JOIN classes cls ON r.course_id = cls.id
-       WHERE COALESCE(c.faculty_id, cls.faculty_id) = $1`,
+       JOIN courses c ON r.course_id = c.id
+       WHERE c.faculty_id = $1`,
       [facultyId]
     );
     console.log(`📋 Total registrations for faculty ${facultyId}:`, allRegs.rows.length);
@@ -215,13 +203,12 @@ router.get(
         u.name as student_name,
         u.email as student_email,
         u.roll_no as student_roll_no,
-        COALESCE(c.course_code, cls.course_code) as course_code,
-        COALESCE(c.course_name, cls.title) as course_name
+        c.code as course_code,
+        c.title as course_name
        FROM registrations r
-       LEFT JOIN courses c ON r.course_id = c.id
-       LEFT JOIN classes cls ON r.course_id = cls.id
+       JOIN courses c ON r.course_id = c.id
        JOIN users u ON r.student_id = u.id
-       WHERE (c.faculty_id = $1 OR cls.faculty_id = $1) AND LOWER(r.status) = 'pending'
+       WHERE c.faculty_id = $1 AND LOWER(r.status) = 'pending'
        ORDER BY r.registered_at DESC`,
       [facultyId]
     );
