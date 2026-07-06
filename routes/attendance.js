@@ -5,7 +5,6 @@ const router = express.Router();
 const { pool } = require("../config/database");
 const auth = require("../middleware/auth");
 const logger = require("../utils/logger");
-const getLocation = require("../utils/geo"); // Utility to get location (needs fixing in geo.js)
 const sendMail = require("../utils/mailer"); // Utility to send mail
 const socketIO = require("../socket"); // Socket.io instance
 const { verifyFace: verifyFaceWithAi } = require("../services/aiFaceClient");
@@ -22,7 +21,6 @@ router.post("/mark", auth(["student"]), async (req, res) => {
   const { code, faceImage } = req.body;
   const student_id = req.user.id;
   const ip = req.ip; // Get client IP address
-  let location_text = "Unknown"; // Placeholder
   let faceVerified = false;
   let faceMatchScore = null;
 
@@ -34,8 +32,8 @@ router.post("/mark", auth(["student"]), async (req, res) => {
     // 1. Look up the session by code (only active sessions)
     // SECURE: Parameterized query prevents SQL injection
     const result = await pool.query(
-      `SELECT id, expires_at, class_id FROM sessions 
-             WHERE code = $1 AND is_active = TRUE 
+          `SELECT id, course_id, session_code, code_expires_at FROM sessions 
+            WHERE session_code = $1 AND is_active = TRUE 
              ORDER BY created_at DESC LIMIT 1`,
       [code],
     );
@@ -47,24 +45,24 @@ router.post("/mark", auth(["student"]), async (req, res) => {
     const session = result.rows[0];
 
     // 2. Check Expiration Time (Use Case 04: Allow reporting expired codes)
-    if (new Date(session.expires_at) < new Date()) {
+    if (session.code_expires_at && new Date(session.code_expires_at) < new Date()) {
       // Code expired - return error but allow student to report it
       return res.status(400).json({
         message: "Code expired.",
         expired: true,
         session_id: session.id,
-        expires_at: session.expires_at,
+        expires_at: session.code_expires_at,
       });
     }
 
-    // 2.5. Verify student is enrolled in the class
+    // 2.5. Verify student is approved for the course
     const enrollmentCheck = await pool.query(
-      "SELECT id FROM enrollments WHERE student_id = $1 AND class_id = $2",
-      [student_id, session.class_id],
+      "SELECT id FROM registrations WHERE student_id = $1 AND course_id = $2 AND status = 'approved'",
+      [student_id, session.course_id],
     );
     if (enrollmentCheck.rowCount === 0) {
       return res.status(403).json({
-        message: "You are not enrolled in this class.",
+        message: "You are not enrolled in this course.",
       });
     }
 
@@ -125,10 +123,10 @@ router.post("/mark", auth(["student"]), async (req, res) => {
 
     // 6. Record Attendance (with face verification data)
     const attendanceResult = await pool.query(
-      `INSERT INTO attendance (student_id, session_id, ip_address, location, status, face_verified, face_match_score) 
-             VALUES ($1, $2, $3, $4, 'Present', $5, $6)
-             RETURNING id, created_at`,
-      [student_id, session.id, ip, location_text, faceVerified, faceMatchScore],
+          `INSERT INTO attendance (student_id, session_id, course_id, status, marked_by, face_verified, notes) 
+            VALUES ($1, $2, $3, 'present', 'student', $4, $5)
+             RETURNING id, marked_at`,
+          [student_id, session.id, session.course_id, faceVerified, `Face score: ${faceMatchScore ?? 0}`],
     );
     const attendanceRecord = attendanceResult.rows[0];
 
@@ -143,27 +141,27 @@ router.post("/mark", auth(["student"]), async (req, res) => {
           studentName: student.name,
           studentRollNo: student.roll_no,
           sessionId: session.id,
-          classId: session.class_id,
-          timestamp: attendanceRecord.created_at,
-          status: "Present",
+          classId: session.course_id,
+          courseId: session.course_id,
+          timestamp: attendanceRecord.marked_at,
+          status: "present",
           face_verified: faceVerified,
           face_match_score: faceMatchScore,
-          is_overridden: false,
         });
 
         // Also emit to class room for broader monitoring
-        io.to(`class_${session.class_id}`).emit("attendance:marked", {
+        io.to(`class_${session.course_id}`).emit("attendance:marked", {
           attendanceId: attendanceRecord.id,
           studentId: student.id,
           studentName: student.name,
           studentRollNo: student.roll_no,
           sessionId: session.id,
-          classId: session.class_id,
-          timestamp: attendanceRecord.created_at,
-          status: "Present",
+          classId: session.course_id,
+          courseId: session.course_id,
+          timestamp: attendanceRecord.marked_at,
+          status: "present",
           face_verified: faceVerified,
           face_match_score: faceMatchScore,
-          is_overridden: false,
         });
 
         logger.debug(
@@ -186,7 +184,7 @@ router.post("/mark", auth(["student"]), async (req, res) => {
       success: true,
       message: "Attendance marked successfully.",
       attendanceId: attendanceRecord.id,
-      timestamp: attendanceRecord.created_at,
+      timestamp: attendanceRecord.marked_at,
       faceVerified: faceVerified,
       faceMatchScore: faceMatchScore,
     });
