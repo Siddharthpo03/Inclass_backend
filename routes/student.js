@@ -23,7 +23,7 @@ router.get("/active-sessions", auth(["student"]), async (req, res) => {
     const result = await pool.query(
       `SELECT
          s.id,
-         s.code,
+         s.session_code,
          s.code_expires_at,
          s.created_at,
          c.id AS course_id,
@@ -55,7 +55,8 @@ router.get("/active-sessions", auth(["student"]), async (req, res) => {
               minute: "2-digit",
             })
           : "",
-        code: row.code,
+        code: row.session_code,
+        sessionCode: row.session_code,
         classId: row.course_id,
         courseId: row.course_id,
         expiresAt: row.code_expires_at,
