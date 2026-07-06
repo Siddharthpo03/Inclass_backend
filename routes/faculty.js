@@ -365,16 +365,16 @@ router.post("/start-session", auth(["faculty"]), async (req, res) => {
   const faculty_id = req.user.id;
   const code = crypto.randomBytes(3).toString("hex").toUpperCase();
   const EXPIRATION_MS = 5 * 60 * 1000; // 5 minutes
-  const expires_at = new Date(Date.now() + EXPIRATION_MS);
+  const code_expires_at = new Date(Date.now() + EXPIRATION_MS);
 
   try {
     if (!class_id) {
       return res.status(400).json({ message: "Class ID required" });
     }
 
-    // Verify the class belongs to this faculty
+    // Verify the course belongs to this faculty
     const classCheck = await pool.query(
-      "SELECT id FROM classes WHERE id = $1 AND faculty_id = $2",
+      "SELECT id FROM courses WHERE id = $1 AND faculty_id = $2",
       [class_id, faculty_id]
     );
     
@@ -383,10 +383,10 @@ router.post("/start-session", auth(["faculty"]), async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO sessions (class_id, code, expires_at, is_active)
-       VALUES ($1, $2, $3, TRUE)
-       RETURNING id, code, expires_at, is_active`,
-      [class_id, code, expires_at]
+      `INSERT INTO sessions (course_id, faculty_id, session_code, code_expires_at, is_active)
+       VALUES ($1, $2, $3, $4, TRUE)
+       RETURNING id, session_code, code_expires_at, is_active, course_id`,
+      [class_id, faculty_id, code, code_expires_at]
     );
 
     const newSession = result.rows[0];
@@ -398,13 +398,14 @@ router.post("/start-session", auth(["faculty"]), async (req, res) => {
         // Emit to class room to notify all connected clients
         io.to(`class_${class_id}`).emit("sessionStarted", {
           sessionId: newSession.id,
-          code: newSession.code,
+          code: newSession.session_code,
           classId: class_id,
-          expiresAt: newSession.expires_at,
+          courseId: class_id,
+          expiresAt: newSession.code_expires_at,
           facultyId: faculty_id,
         });
 
-        console.log(`📡 Emitted session started event for class ${class_id} with code ${newSession.code}`);
+        console.log(`📡 Emitted session started event for course ${class_id} with code ${newSession.session_code}`);
       }
     } catch (socketError) {
       // Don't fail the request if Socket.io fails
@@ -415,9 +416,12 @@ router.post("/start-session", auth(["faculty"]), async (req, res) => {
       message: "Session started",
       session: {
         id: newSession.id,
-        code: newSession.code,
-        expires_at: newSession.expires_at,
+        code: newSession.session_code,
+        session_code: newSession.session_code,
+        expires_at: newSession.code_expires_at,
+        code_expires_at: newSession.code_expires_at,
         is_active: newSession.is_active !== false, // Ensure it's true
+        course_id: newSession.course_id,
       },
     });
   } catch (err) {
@@ -436,10 +440,10 @@ router.get("/sessions", auth(["faculty"]), async (req, res) => {
     console.log(`📋 Fetching sessions for faculty ID: ${faculty_id}`);
     
     const result = await pool.query(
-      `SELECT s.id, s.class_id, s.code, s.expires_at, s.is_active, s.created_at,
-              c.title, c.course_code
+      `SELECT s.id, s.course_id, s.session_code, s.code_expires_at, s.is_active, s.created_at,
+              c.title, c.code AS course_code
        FROM sessions s
-       INNER JOIN classes c ON c.id = s.class_id
+       INNER JOIN courses c ON c.id = s.course_id
        WHERE c.faculty_id = $1
        ORDER BY s.created_at DESC`,
       [faculty_id]
@@ -448,15 +452,17 @@ router.get("/sessions", auth(["faculty"]), async (req, res) => {
     console.log(`📋 Found ${result.rows.length} sessions in database`);
     
     const sessions = result.rows.map(row => {
-      const isExpired = new Date(row.expires_at) <= new Date();
+      const isExpired = row.code_expires_at ? new Date(row.code_expires_at) <= new Date() : false;
       const isActive = row.is_active && !isExpired;
       
       return {
         id: row.id,
-        class_id: row.class_id,
-        course_id: row.class_id, // For compatibility
-        code: row.code,
-        expires_at: row.expires_at,
+        class_id: row.course_id,
+        course_id: row.course_id,
+        code: row.session_code,
+        session_code: row.session_code,
+        expires_at: row.code_expires_at,
+        code_expires_at: row.code_expires_at,
         is_active: isActive,
         created_at: row.created_at,
         createdAt: row.created_at,
@@ -471,8 +477,8 @@ router.get("/sessions", auth(["faculty"]), async (req, res) => {
     const updateResult = await pool.query(
       `UPDATE sessions 
        SET is_active = FALSE 
-       WHERE expires_at < NOW() AND is_active = TRUE 
-       AND class_id IN (SELECT id FROM classes WHERE faculty_id = $1)`,
+       WHERE code_expires_at < NOW() AND is_active = TRUE 
+       AND course_id IN (SELECT id FROM courses WHERE faculty_id = $1)`,
       [faculty_id]
     );
     
@@ -496,10 +502,10 @@ router.get("/sessions/:sessionId", auth(["faculty"]), async (req, res) => {
   
   try {
     const result = await pool.query(
-      `SELECT s.id, s.class_id, s.code, s.expires_at, s.is_active, s.created_at,
+      `SELECT s.id, s.course_id, s.session_code, s.code_expires_at, s.is_active, s.created_at,
               c.title, c.course_code, c.faculty_id
        FROM sessions s
-       INNER JOIN classes c ON c.id = s.class_id
+       INNER JOIN courses c ON c.id = s.course_id
        WHERE s.id = $1 AND c.faculty_id = $2`,
       [sessionId, faculty_id]
     );
@@ -509,13 +515,16 @@ router.get("/sessions/:sessionId", auth(["faculty"]), async (req, res) => {
     }
     
     const session = result.rows[0];
-    const isActive = session.is_active && new Date(session.expires_at) > new Date();
+    const isActive = session.is_active && (!session.code_expires_at || new Date(session.code_expires_at) > new Date());
     
     res.json({
       id: session.id,
-      class_id: session.class_id,
-      code: session.code,
-      expires_at: session.expires_at,
+      class_id: session.course_id,
+      course_id: session.course_id,
+      code: session.session_code,
+      session_code: session.session_code,
+      expires_at: session.code_expires_at,
+      code_expires_at: session.code_expires_at,
       is_active: isActive,
       created_at: session.created_at,
       course_title: session.title,
@@ -537,9 +546,9 @@ router.post("/sessions/:sessionId/end", auth(["faculty"]), async (req, res) => {
   try {
     // Verify session belongs to faculty
     const sessionCheck = await pool.query(
-      `SELECT s.id, s.class_id, c.faculty_id
+      `SELECT s.id, s.course_id, c.faculty_id
        FROM sessions s
-       INNER JOIN classes c ON c.id = s.class_id
+       INNER JOIN courses c ON c.id = s.course_id
        WHERE s.id = $1 AND c.faculty_id = $2`,
       [sessionId, faculty_id]
     );
@@ -617,9 +626,9 @@ router.get("/session-attendance/:sessionId", auth(["faculty"]), async (req, res)
   try {
     // Verify session belongs to faculty
     const sessionCheck = await pool.query(
-      `SELECT s.id, s.class_id, s.code, s.expires_at, c.faculty_id, c.course_code, c.title
+      `SELECT s.id, s.course_id, s.session_code, s.code_expires_at, c.faculty_id, c.code AS course_code, c.title
        FROM sessions s
-       INNER JOIN classes c ON c.id = s.class_id
+       INNER JOIN courses c ON c.id = s.course_id
        WHERE s.id = $1 AND c.faculty_id = $2`,
       [sessionId, faculty_id]
     );
@@ -633,11 +642,11 @@ router.get("/session-attendance/:sessionId", auth(["faculty"]), async (req, res)
     // Get all enrolled students for this class
     const enrolledStudents = await pool.query(
       `SELECT u.id, u.name, u.roll_no
-       FROM users u
-       INNER JOIN enrollments e ON e.student_id = u.id
-       WHERE e.class_id = $1 AND u.role = 'student'
+       FROM registrations r
+       INNER JOIN users u ON u.id = r.student_id
+       WHERE r.course_id = $1 AND r.status = 'approved' AND u.role = 'student'
        ORDER BY u.name`,
-      [session.class_id]
+      [session.course_id]
     );
 
     // Get attendance records for this session
@@ -656,10 +665,9 @@ router.get("/session-attendance/:sessionId", auth(["faculty"]), async (req, res)
       attendanceMap.set(record.student_id, {
         id: record.id,
         status: record.status,
-        is_overridden: record.is_overridden,
-        override_reason: record.override_reason,
         face_verified: record.face_verified,
-        created_at: record.created_at,
+        created_at: record.marked_at,
+        notes: record.notes,
       });
     });
 
@@ -675,8 +683,8 @@ router.get("/session-attendance/:sessionId", auth(["faculty"]), async (req, res)
       success: true,
       session: {
         id: session.id,
-        code: session.code,
-        expires_at: session.expires_at,
+        code: session.session_code,
+        expires_at: session.code_expires_at,
         course_code: session.course_code,
         course_title: session.title,
       },
@@ -702,9 +710,9 @@ router.post("/manual-attendance", auth(["faculty"]), async (req, res) => {
 
     // Verify session belongs to faculty
     const sessionCheck = await pool.query(
-      `SELECT s.id, s.class_id, c.faculty_id
+      `SELECT s.id, s.course_id, c.faculty_id
        FROM sessions s
-       INNER JOIN classes c ON c.id = s.class_id
+       INNER JOIN courses c ON c.id = s.course_id
        WHERE s.id = $1 AND c.faculty_id = $2`,
       [session_id, faculty_id]
     );
@@ -715,8 +723,8 @@ router.post("/manual-attendance", auth(["faculty"]), async (req, res) => {
 
     // Verify student is enrolled
     const enrollmentCheck = await pool.query(
-      "SELECT id FROM enrollments WHERE student_id = $1 AND class_id = $2",
-      [student_id, sessionCheck.rows[0].class_id]
+      "SELECT id FROM registrations WHERE student_id = $1 AND course_id = $2 AND status = 'approved'",
+      [student_id, sessionCheck.rows[0].course_id]
     );
 
     if (enrollmentCheck.rowCount === 0) {
@@ -725,15 +733,16 @@ router.post("/manual-attendance", auth(["faculty"]), async (req, res) => {
 
     // Insert or update attendance
     const result = await pool.query(
-      `INSERT INTO attendance (student_id, session_id, status, is_overridden, override_reason)
-       VALUES ($1, $2, 'Manual', TRUE, $3)
+      `INSERT INTO attendance (student_id, session_id, course_id, status, marked_by, notes)
+       VALUES ($1, $2, $3, 'late', 'faculty', $4)
        ON CONFLICT (student_id, session_id)
        DO UPDATE SET 
-         status = 'Manual',
-         is_overridden = TRUE,
-         override_reason = $3
-       RETURNING id, created_at`,
-      [student_id, session_id, reason || "Manually marked by faculty"]
+         status = 'late',
+         marked_by = 'faculty',
+         notes = $4,
+         marked_at = CURRENT_TIMESTAMP
+       RETURNING id, marked_at`,
+      [student_id, session_id, sessionCheck.rows[0].course_id, reason || "Manually marked by faculty"]
     );
 
     res.json({
@@ -761,7 +770,7 @@ router.post("/enroll-student", auth(["faculty"]), async (req, res) => {
 
     // Verify the class belongs to this faculty
     const classCheck = await pool.query(
-      "SELECT id FROM classes WHERE id = $1 AND faculty_id = $2",
+      "SELECT id FROM courses WHERE id = $1 AND faculty_id = $2",
       [class_id, faculty_id]
     );
     if (classCheck.rowCount === 0) {
@@ -777,9 +786,13 @@ router.post("/enroll-student", auth(["faculty"]), async (req, res) => {
       return res.status(400).json({ message: "Invalid student ID." });
     }
 
-    // Enroll the student
+    // Enroll the student by creating an approved registration record
     const result = await pool.query(
-      "INSERT INTO enrollments (student_id, class_id) VALUES ($1, $2) RETURNING id",
+      `INSERT INTO registrations (student_id, course_id, status)
+       VALUES ($1, $2, 'approved')
+       ON CONFLICT (student_id, course_id)
+       DO UPDATE SET status = 'approved', updated_at = CURRENT_TIMESTAMP
+       RETURNING id`,
       [student_id, class_id]
     );
 
@@ -789,7 +802,7 @@ router.post("/enroll-student", auth(["faculty"]), async (req, res) => {
     });
   } catch (err) {
     if (err.code === "23505") {
-      return res.status(400).json({ message: "Student is already enrolled in this class." });
+      return res.status(400).json({ message: "Student is already enrolled in this course." });
     }
     console.error(err);
     res.status(500).json({ error: "Server error while enrolling student" });
