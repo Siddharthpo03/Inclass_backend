@@ -122,7 +122,6 @@ router.get(
       `SELECT 
         r.id,
         r.status,
-        r.rejection_reason,
         r.registered_at as requested_at,
         r.updated_at as reviewed_at,
         c.id as course_id,
@@ -147,7 +146,7 @@ router.get(
       registrations: result.rows.map((row) => ({
         id: row.id,
         status: row.status,
-        rejectionReason: row.rejection_reason,
+        rejectionReason: null,
         requestedAt: row.requested_at,
         reviewedAt: row.reviewed_at,
         course: {
@@ -195,7 +194,6 @@ router.get(
       `SELECT 
         r.id,
         r.status,
-        r.rejection_reason,
         r.registered_at as requested_at,
         r.updated_at as reviewed_at,
         r.course_id,
@@ -258,7 +256,6 @@ router.get(
       `SELECT 
         r.id,
         r.status,
-        r.rejection_reason,
         r.registered_at as requested_at,
         r.updated_at as reviewed_at,
         u.id as student_id,
@@ -278,7 +275,7 @@ router.get(
       registrations: result.rows.map((row) => ({
         id: row.id,
         status: row.status,
-        rejectionReason: row.rejection_reason,
+        rejectionReason: null,
         requestedAt: row.requested_at,
         reviewedAt: row.reviewed_at,
         student: {
@@ -350,7 +347,6 @@ router.post(
   asyncHandler(async (req, res) => {
     const facultyId = req.user.id;
     const { registrationId } = req.params;
-    const { rejectionReason } = req.body;
 
     // Get registration and verify it belongs to faculty's course
     const regResult = await pool.query(
@@ -378,9 +374,9 @@ router.post(
     // Reject registration
     await pool.query(
       `UPDATE registrations 
-       SET status = 'rejected', rejection_reason = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2`,
-      [rejectionReason || "No reason provided", registrationId]
+       SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [registrationId]
     );
 
     res.json({

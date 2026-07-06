@@ -569,9 +569,9 @@ router.get("/course-roster/:classId", auth(["faculty"]), async (req, res) => {
   const faculty_id = req.user.id;
 
   try {
-    // Verify the class belongs to this faculty
+    // Verify the course belongs to this faculty
     const classCheck = await pool.query(
-      "SELECT id FROM classes WHERE id = $1 AND faculty_id = $2",
+      "SELECT id FROM courses WHERE id = $1 AND faculty_id = $2",
       [classId, faculty_id]
     );
     
@@ -579,13 +579,14 @@ router.get("/course-roster/:classId", auth(["faculty"]), async (req, res) => {
       return res.status(404).json({ message: "Course not found or access denied" });
     }
 
-    // Fixed: Use users and enrollments tables (enrollments table now exists in schema)
+    // Use approved registrations as the roster source in the current schema
     const result = await pool.query(
       `SELECT u.id, u.name, u.roll_no, u.email,
-              CASE WHEN e.student_id IS NOT NULL THEN TRUE ELSE FALSE END as enrolled
-       FROM users u
-       LEFT JOIN enrollments e ON e.student_id = u.id AND e.class_id = $1
-       WHERE u.role = 'student' AND e.class_id = $1
+              TRUE as enrolled
+       FROM registrations r
+       JOIN users u ON r.student_id = u.id
+       WHERE r.course_id = $1
+         AND r.status = 'approved'
        ORDER BY u.name`,
       [classId]
     );
@@ -804,10 +805,9 @@ router.get("/pending-students", auth(["faculty"]), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT 
-        ps.id as pending_id,
-        ps.status,
-        ps.created_at,
-        ps.faculty_notes,
+        r.id as pending_id,
+        r.status,
+        r.registered_at as created_at,
         u.id as student_id,
         u.name as student_name,
         u.email as student_email,
@@ -815,11 +815,15 @@ router.get("/pending-students", auth(["faculty"]), async (req, res) => {
         u.mobile_number,
         u.country_code,
         u.college,
-        u.passport_photo_url
-      FROM pending_students ps
-      JOIN users u ON ps.student_id = u.id
-      WHERE ps.faculty_id = $1 AND ps.status = 'Pending'
-      ORDER BY ps.created_at DESC`,
+        u.passport_photo_url,
+        c.id as course_id,
+        c.code as course_code,
+        c.title as course_name
+      FROM registrations r
+      JOIN courses c ON r.course_id = c.id
+      JOIN users u ON r.student_id = u.id
+      WHERE c.faculty_id = $1 AND LOWER(r.status) = 'pending'
+      ORDER BY r.registered_at DESC`,
       [facultyId]
     );
 
@@ -828,7 +832,12 @@ router.get("/pending-students", auth(["faculty"]), async (req, res) => {
         pendingId: row.pending_id,
         status: row.status,
         createdAt: row.created_at,
-        facultyNotes: row.faculty_notes,
+        facultyNotes: null,
+        course: {
+          id: row.course_id,
+          courseCode: row.course_code,
+          courseName: row.course_name,
+        },
         student: {
           id: row.student_id,
           name: row.student_name,
@@ -856,9 +865,12 @@ router.post("/pending-students/:pendingId/approve", auth(["faculty"]), async (re
   const { notes } = req.body;
 
   try {
-    // Verify the pending request belongs to this faculty
+    // Verify the registration belongs to this faculty
     const checkResult = await pool.query(
-      "SELECT student_id FROM pending_students WHERE id = $1 AND faculty_id = $2 AND status = 'Pending'",
+      `SELECT r.student_id
+       FROM registrations r
+       JOIN courses c ON r.course_id = c.id
+       WHERE r.id = $1 AND c.faculty_id = $2 AND LOWER(r.status) = 'pending'`,
       [pendingId, facultyId]
     );
 
@@ -868,14 +880,12 @@ router.post("/pending-students/:pendingId/approve", auth(["faculty"]), async (re
 
     const studentId = checkResult.rows[0].student_id;
 
-    // Update pending student status
+    // Update registration status
     await pool.query(
-      `UPDATE pending_students 
-       SET status = 'Approved', 
-           faculty_notes = $1, 
-           resolved_at = CURRENT_TIMESTAMP 
-       WHERE id = $2`,
-      [notes || null, pendingId]
+      `UPDATE registrations 
+       SET status = 'approved', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [pendingId]
     );
 
     res.json({
@@ -895,9 +905,12 @@ router.post("/pending-students/:pendingId/reject", auth(["faculty"]), async (req
   const { notes } = req.body;
 
   try {
-    // Verify the pending request belongs to this faculty
+    // Verify the registration belongs to this faculty
     const checkResult = await pool.query(
-      "SELECT student_id FROM pending_students WHERE id = $1 AND faculty_id = $2 AND status = 'Pending'",
+      `SELECT r.student_id
+       FROM registrations r
+       JOIN courses c ON r.course_id = c.id
+       WHERE r.id = $1 AND c.faculty_id = $2 AND LOWER(r.status) = 'pending'`,
       [pendingId, facultyId]
     );
 
@@ -905,14 +918,12 @@ router.post("/pending-students/:pendingId/reject", auth(["faculty"]), async (req
       return res.status(404).json({ message: "Pending student request not found or already processed" });
     }
 
-    // Update pending student status
+    // Update registration status
     await pool.query(
-      `UPDATE pending_students 
-       SET status = 'Rejected', 
-           faculty_notes = $1, 
-           resolved_at = CURRENT_TIMESTAMP 
-       WHERE id = $2`,
-      [notes || null, pendingId]
+      `UPDATE registrations 
+       SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [pendingId]
     );
 
     res.json({
