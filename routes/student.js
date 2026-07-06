@@ -8,9 +8,9 @@ const auth = require("../middleware/auth");
 function buildDateFilter(range) {
   switch ((range || "all").toLowerCase()) {
     case "week":
-      return "AND a.created_at >= NOW() - INTERVAL '7 days'";
+      return "AND a.marked_at >= NOW() - INTERVAL '7 days'";
     case "month":
-      return "AND a.created_at >= NOW() - INTERVAL '30 days'";
+      return "AND a.marked_at >= NOW() - INTERVAL '30 days'";
     default:
       return "";
   }
@@ -23,20 +23,22 @@ router.get("/active-sessions", auth(["student"]), async (req, res) => {
     const result = await pool.query(
       `SELECT
          s.id,
-         s.class_id,
          s.code,
-         s.expires_at,
+         s.code_expires_at,
          s.created_at,
-         c.title AS class_name,
-         c.course_code,
+         c.id AS course_id,
+         c.title AS course_name,
+         c.code AS course_code,
          u.name AS faculty_name
        FROM sessions s
-       INNER JOIN classes c ON c.id = s.class_id
+       INNER JOIN courses c ON c.id = s.course_id
        INNER JOIN users u ON u.id = c.faculty_id
-       INNER JOIN enrollments e ON e.class_id = c.id
-       WHERE e.student_id = $1
+       INNER JOIN registrations r ON r.course_id = c.id
+       WHERE r.student_id = $1
          AND s.is_active = TRUE
-         AND s.expires_at > NOW()
+         AND (s.code_expires_at IS NULL OR s.code_expires_at > NOW())
+         AND r.student_id = $1
+         AND r.status = 'approved'
        ORDER BY s.created_at DESC`,
       [studentId],
     );
@@ -44,16 +46,19 @@ router.get("/active-sessions", auth(["student"]), async (req, res) => {
     res.json({
       sessions: result.rows.map((row) => ({
         id: row.id,
-        name: row.class_name,
+        name: row.course_name,
         faculty: row.faculty_name,
         room: row.course_code,
-        time: new Date(row.expires_at).toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+        time: row.code_expires_at
+          ? new Date(row.code_expires_at).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "",
         code: row.code,
-        classId: row.class_id,
-        expiresAt: row.expires_at,
+        classId: row.course_id,
+        courseId: row.course_id,
+        expiresAt: row.code_expires_at,
       })),
     });
   } catch (error) {
@@ -73,18 +78,18 @@ router.get("/attendance-history", auth(["student"]), async (req, res) => {
     const result = await pool.query(
       `SELECT
          a.id,
-         a.created_at AS date,
+         a.marked_at AS date,
          a.status,
          c.title AS subject,
-         c.course_code,
+         c.code AS course_code,
          u.name AS faculty
        FROM attendance a
        INNER JOIN sessions s ON s.id = a.session_id
-       INNER JOIN classes c ON c.id = s.class_id
+       INNER JOIN courses c ON c.id = s.course_id
        INNER JOIN users u ON u.id = c.faculty_id
        WHERE a.student_id = $1
        ${dateFilter}
-       ORDER BY a.created_at DESC
+       ORDER BY a.marked_at DESC
        LIMIT 100`,
       [studentId],
     );
@@ -115,8 +120,8 @@ router.get("/attendance-stats", auth(["student"]), async (req, res) => {
     const result = await pool.query(
       `SELECT
          COUNT(*)::int AS total_classes,
-         COUNT(*) FILTER (WHERE status = 'Present')::int AS present,
-         COUNT(*) FILTER (WHERE status = 'Absent')::int AS absent
+         COUNT(*) FILTER (WHERE LOWER(status) = 'present')::int AS present,
+         COUNT(*) FILTER (WHERE LOWER(status) = 'absent')::int AS absent
        FROM attendance
        WHERE student_id = $1`,
       [studentId],
