@@ -218,9 +218,23 @@ router.get(
   asyncHandler(async (req, res) => {
     const userId = req.user.id;
 
-    // SECURE: Parameterized query prevents SQL injection
     const result = await pool.query(
-      "SELECT name, email, role, roll_no, college, department, college_id, department_id FROM users WHERE id = $1",
+      `SELECT
+         id,
+         name,
+         email,
+         role,
+         roll_no,
+         mobile_number,
+         country_code,
+         passport_photo_url,
+         college,
+         department,
+         college_id,
+         department_id,
+         face_enrolled
+       FROM users
+       WHERE id = $1`,
       [userId],
     );
 
@@ -230,19 +244,108 @@ router.get(
 
     const user = result.rows[0];
 
-    // Map data to the structure the frontend expects
     res.json({
+      userId: user.id,
       name: user.name,
-      role: user.role,
-      id: user.roll_no,
-      userId: userId,
       email: user.email,
+      role: user.role,
+
+      id: user.roll_no,
+      studentId: user.roll_no,
+      roll_no: user.roll_no,
+
+      phone: user.mobile_number,
+      mobile_number: user.mobile_number,
+      country_code: user.country_code,
+
+      passportPhotoUrl: user.passport_photo_url,
+      passport_photo_url: user.passport_photo_url,
+
       department:
         user.department ||
         (user.roll_no ? user.roll_no.substring(0, 3) : "N/A"),
+
       college: user.college || "Tech University",
+
       college_id: user.college_id,
       department_id: user.department_id,
+
+      biometric_registered: Boolean(user.face_enrolled),
+      face_enrolled: Boolean(user.face_enrolled),
+    });
+  }),
+);
+
+router.put(
+  "/profile",
+  auth(),
+  asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+
+    const { name, phone } = req.body;
+
+    if (!name || typeof name !== "string" || !name.trim()) {
+      throw new ValidationError("Name is required.");
+    }
+
+    const normalizedName = name.trim();
+
+    let normalizedPhone = null;
+
+    if (phone !== undefined && phone !== null && String(phone).trim() !== "") {
+      normalizedPhone = String(phone).replace(/\s/g, "").trim();
+
+      if (!/^\d{10,15}$/.test(normalizedPhone)) {
+        throw new ValidationError("Invalid mobile number format.");
+      }
+    }
+
+    const result = await pool.query(
+      `UPDATE users
+       SET name = $1,
+           mobile_number = $2
+       WHERE id = $3
+       RETURNING
+         id,
+         name,
+         email,
+         role,
+         roll_no,
+         mobile_number,
+         country_code,
+         college,
+         department,
+         college_id,
+         department_id`,
+      [normalizedName, normalizedPhone, userId],
+    );
+
+    if (result.rowCount === 0) {
+      throw new NotFoundError("User profile");
+    }
+
+    const user = result.rows[0];
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully.",
+      profile: {
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        id: user.roll_no,
+        studentId: user.roll_no,
+        phone: user.mobile_number,
+        mobile_number: user.mobile_number,
+        country_code: user.country_code,
+        college: user.college || "Tech University",
+        department:
+          user.department ||
+          (user.roll_no ? user.roll_no.substring(0, 3) : "N/A"),
+        college_id: user.college_id,
+        department_id: user.department_id,
+      },
     });
   }),
 );
