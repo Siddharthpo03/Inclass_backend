@@ -2,46 +2,61 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-// Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "../uploads");
+
 if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+  fs.mkdirSync(uploadsDir, {
+    recursive: true,
+  });
 }
 
-// Configure storage
+const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+const extensionMap = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+};
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadsDir);
   },
+
   filename: (req, file, cb) => {
-    // Generate unique filename: timestamp-random-originalname
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    const ext = path.extname(file.originalname);
-    cb(null, `photo-${uniqueSuffix}${ext}`);
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+
+    const extension = extensionMap[file.mimetype] || ".jpg";
+
+    cb(null, `photo-${uniqueSuffix}${extension}`);
   },
 });
 
-// File filter
 const fileFilter = (req, file, cb) => {
-  // Accept only image files
-  if (file.mimetype.startsWith("image/")) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only image files are allowed"), false);
+  if (!allowedMimeTypes.has(file.mimetype)) {
+    const error = new Error("Only JPEG, PNG, and WebP images are allowed.");
+
+    error.code = "INVALID_IMAGE_TYPE";
+
+    cb(error, false);
+
+    return;
   }
+
+  cb(null, true);
 };
 
-// Configure multer
-// Note: Multer automatically parses multipart/form-data and puts form fields in req.body
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage,
+
+  fileFilter,
+
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 5 * 1024 * 1024,
+    files: 2,
   },
-  // Ensure form fields are parsed
+
   preservePath: false,
 });
 
 module.exports = upload;
-

@@ -6,11 +6,7 @@ require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 const express = require("express");
 const cors = require("cors");
 // Helmet package may export via `.default` depending on bundler/ts settings.
-const _helmetPkg = require("helmet");
-const helmet =
-  typeof _helmetPkg === "function"
-    ? _helmetPkg
-    : _helmetPkg.default || _helmetPkg;
+const helmet = require("helmet");
 const pool = require("./db");
 const errorHandler = require("./middleware/errorHandler");
 const logger = require("./utils/logger");
@@ -108,6 +104,8 @@ Use a strong, randomly generated secret of at least ${MIN_JWT_SECRET_LENGTH} cha
 }
 
 const app = express();
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // --- Security headers (Helmet) - apply early ---
 const isProduction = process.env.NODE_ENV === "production";

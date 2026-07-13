@@ -350,6 +350,52 @@ router.put(
   }),
 );
 
+// @route   PUT /api/auth/profile/photo
+// @desc    Update authenticated user's profile photo
+// @access  Private
+router.put(
+  "/profile/photo",
+  auth(),
+  upload.single("profilePhoto"),
+  asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+
+    if (!req.file) {
+      throw new ValidationError("Profile photo is required.");
+    }
+
+    const profilePhotoUrl = `/uploads/${req.file.filename}`;
+
+    const result = await pool.query(
+      `UPDATE users
+       SET passport_photo_url = $1
+       WHERE id = $2
+       RETURNING
+         id,
+         name,
+         passport_photo_url`,
+      [profilePhotoUrl, userId],
+    );
+
+    if (result.rowCount === 0) {
+      throw new NotFoundError("User profile");
+    }
+
+    const user = result.rows[0];
+
+    res.json({
+      success: true,
+      message: "Profile photo updated successfully.",
+      profile: {
+        userId: user.id,
+        name: user.name,
+        passportPhotoUrl: user.passport_photo_url,
+        passport_photo_url: user.passport_photo_url,
+      },
+    });
+  }),
+);
+
 // @route   POST /api/auth/register
 // @desc    Register User (with file upload support)
 const upload = require("../middleware/upload");
@@ -908,8 +954,8 @@ router.post(
     const record = otpResult.rows[0];
     const expiresAt = new Date(record.expires_at);
     if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() < Date.now()) {
-      await pool.query("DELETE FROM otps WHERE phone = $1 AND email = $2", [
-        recipient.phoneKey,
+      await pool.query("DELETE FROM otps WHERE user_id = $1 AND email = $2", [
+        targetUserId,
         recipient.email,
       ]);
       throw new AuthenticationError(
