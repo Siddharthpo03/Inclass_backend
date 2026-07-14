@@ -20,7 +20,6 @@ if (!process.env.BIOMETRIC_ENCRYPTION_KEY) {
 ║  CRITICAL SECURITY ERROR: BIOMETRIC_ENCRYPTION_KEY is not set                ║
 ║  Server cannot start. Biometric data encryption requires a secure key.      ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
-
 To fix:
 1. Generate a secure 64-character hex key (32 bytes for AES-256):
    node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
