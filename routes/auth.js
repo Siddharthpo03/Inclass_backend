@@ -25,6 +25,7 @@ const {
 } = require("../middleware/rateLimiter");
 const { sendOtpEmail } = require("../utils/email");
 const { verifyFace: verifyFaceWithAi } = require("../services/aiFaceClient");
+const upload = require("../middleware/upload");
 
 // Utility to generate JWT (requires JWT_SECRET in .env)
 // Token expires in 24 hours for security (production best practice)
@@ -398,7 +399,6 @@ router.put(
 
 // @route   POST /api/auth/register
 // @desc    Register User (with file upload support)
-const upload = require("../middleware/upload");
 
 // Make multer optional: only run it when Content-Type is multipart/form-data
 function optionalMultipartFields(fields) {

@@ -5,8 +5,13 @@ require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 // Helmet package may export via `.default` depending on bundler/ts settings.
-const helmet = require("helmet");
+const _helmetPkg = require("helmet");
+const helmet =
+  typeof _helmetPkg === "function"
+    ? _helmetPkg
+    : _helmetPkg.default || _helmetPkg;
 const pool = require("./db");
 const errorHandler = require("./middleware/errorHandler");
 const logger = require("./utils/logger");
@@ -175,10 +180,6 @@ app.options(/.*/, cors(corsOptions));
 // Body parsing middleware - but multer will handle multipart/form-data
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-// Serve uploaded files statically
-const path = require("path");
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // --- Database Connection Check + pgvector Init ---
 const { initVectorSupport } = require("./config/database");
