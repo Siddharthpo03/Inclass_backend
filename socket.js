@@ -66,16 +66,18 @@ module.exports = {
       socket.on("joinSession", (data) => {
         const { sessionId, userRole } = data || {};
         if (sessionId) {
-          const room = `session_${sessionId}`;
-          socket.join(room);
+          const legacyRoom = `session_${sessionId}`;
+          const modernRoom = `session:${sessionId}`;
+          socket.join(legacyRoom);
+          socket.join(modernRoom);
           logger.info("Socket joined session room", {
             socketId: socket.id,
-            room,
+            room: legacyRoom,
             userRole: userRole || "unknown",
           });
 
           // Acknowledge join
-          socket.emit("sessionJoined", { sessionId, room });
+          socket.emit("sessionJoined", { sessionId, room: modernRoom });
         }
       });
 
@@ -83,11 +85,13 @@ module.exports = {
       socket.on("join:session", (data) => {
         const { sessionId } = data || {};
         if (sessionId) {
-          const room = `session:${sessionId}`;
-          socket.join(room);
+          const legacyRoom = `session_${sessionId}`;
+          const modernRoom = `session:${sessionId}`;
+          socket.join(legacyRoom);
+          socket.join(modernRoom);
           logger.info("Socket joined session room (alt)", {
             socketId: socket.id,
-            room,
+            room: modernRoom,
           });
         }
       });
@@ -96,11 +100,11 @@ module.exports = {
       socket.on("leave:session", (data) => {
         const { sessionId } = data || {};
         if (sessionId) {
-          const room = `session:${sessionId}`;
-          socket.leave(room);
+          socket.leave(`session_${sessionId}`);
+          socket.leave(`session:${sessionId}`);
           logger.info("Socket left session room (alt)", {
             socketId: socket.id,
-            room,
+            room: `session:${sessionId}`,
           });
         }
       });
@@ -190,6 +194,18 @@ module.exports = {
           const room = `student:${studentId}`;
           socket.join(room);
           logger.info("Socket joined student room", {
+            socketId: socket.id,
+            room,
+          });
+        }
+      });
+
+      socket.on("student:join", (data) => {
+        const { studentId } = data || {};
+        if (studentId) {
+          const room = `student:${studentId}`;
+          socket.join(room);
+          logger.info("Socket joined student room (alt)", {
             socketId: socket.id,
             room,
           });

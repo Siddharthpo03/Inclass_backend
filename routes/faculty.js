@@ -372,15 +372,20 @@ router.post("/start-session", auth(["faculty"]), async (req, res) => {
       return res.status(400).json({ message: "Class ID required" });
     }
 
-    // Verify the course belongs to this faculty
+    // Verify the course belongs to this faculty and fetch the course label
     const classCheck = await pool.query(
-      "SELECT id FROM courses WHERE id = $1 AND faculty_id = $2",
-      [class_id, faculty_id]
+      `SELECT c.id, c.title, c.code AS course_code, u.name AS faculty_name
+       FROM courses c
+       INNER JOIN users u ON u.id = c.faculty_id
+       WHERE c.id = $1 AND c.faculty_id = $2`,
+      [class_id, faculty_id],
     );
     
     if (classCheck.rowCount === 0) {
       return res.status(403).json({ message: "You don't have permission to start a session for this class." });
     }
+
+    const courseInfo = classCheck.rows[0];
 
     const result = await pool.query(
       `INSERT INTO sessions (course_id, faculty_id, session_code, code_expires_at, is_active)
@@ -395,15 +400,23 @@ router.post("/start-session", auth(["faculty"]), async (req, res) => {
     try {
       const io = socketIO.getIO();
       if (io) {
-        // Emit to class room to notify all connected clients
-        io.to(`class_${class_id}`).emit("sessionStarted", {
+        const sessionPayload = {
           sessionId: newSession.id,
+          id: newSession.id,
           code: newSession.session_code,
           classId: class_id,
           courseId: class_id,
-          expiresAt: newSession.code_expires_at,
+          courseName: courseInfo.title,
           facultyId: faculty_id,
-        });
+          facultyName: courseInfo.faculty_name,
+          expires_at: newSession.code_expires_at,
+          expiresAt: newSession.code_expires_at,
+          room: `class_${class_id}`,
+        };
+
+        // Emit to class room to notify all connected clients
+        io.to(`class_${class_id}`).emit("sessionStarted", sessionPayload);
+        io.to(`class_${class_id}`).emit("session:started", sessionPayload);
 
         console.log(`📡 Emitted session started event for course ${class_id} with code ${newSession.session_code}`);
       }
@@ -562,6 +575,27 @@ router.post("/sessions/:sessionId/end", auth(["faculty"]), async (req, res) => {
       "UPDATE sessions SET is_active = FALSE WHERE id = $1",
       [sessionId]
     );
+
+    try {
+      const io = socketIO.getIO();
+      if (io) {
+        const endPayload = {
+          sessionId,
+          id: sessionId,
+          courseId: sessionCheck.rows[0].course_id,
+          classId: sessionCheck.rows[0].course_id,
+        };
+
+        io.to(`session_${sessionId}`).emit("sessionEnded", endPayload);
+        io.to(`session:${sessionId}`).emit("sessionEnded", endPayload);
+        io.to(`session_${sessionId}`).emit("session:ended", endPayload);
+        io.to(`session:${sessionId}`).emit("session:ended", endPayload);
+        io.to(`class_${sessionCheck.rows[0].course_id}`).emit("sessionEnded", endPayload);
+        io.to(`class_${sessionCheck.rows[0].course_id}`).emit("session:ended", endPayload);
+      }
+    } catch (socketError) {
+      console.error("Socket.io end-session emission error:", socketError);
+    }
     
     res.json({ message: "Session ended successfully" });
   } catch (err) {

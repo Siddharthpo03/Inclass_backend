@@ -149,6 +149,20 @@ router.post("/mark", auth(["student"]), async (req, res) => {
           face_match_score: faceMatchScore,
         });
 
+        io.to(`session:${session.id}`).emit("attendance:marked", {
+          attendanceId: attendanceRecord.id,
+          studentId: student.id,
+          studentName: student.name,
+          studentRollNo: student.roll_no,
+          sessionId: session.id,
+          classId: session.course_id,
+          courseId: session.course_id,
+          timestamp: attendanceRecord.marked_at,
+          status: "present",
+          face_verified: faceVerified,
+          face_match_score: faceMatchScore,
+        });
+
         // Also emit to class room for broader monitoring
         io.to(`class_${session.course_id}`).emit("attendance:marked", {
           attendanceId: attendanceRecord.id,
